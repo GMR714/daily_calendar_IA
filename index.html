@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agenda Inteligente</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">Planejador pessoal</p>
+          <h1>Agenda Inteligente</h1>
+          <p class="intro">Transforme metas, compromissos e relatos do dia em uma semana organizada.</p>
+        </div>
+
+        <section class="panel assistant-panel">
+          <h2>Fale com sua agenda</h2>
+          <div class="mode-toggle" role="group" aria-label="Tipo de mensagem">
+            <button class="active" data-mode="auto" type="button">Auto</button>
+            <button data-mode="entry" type="button">Tarefa</button>
+            <button data-mode="report" type="button">Relato</button>
+          </div>
+          <div class="prompt-chips" aria-label="Exemplos rapidos">
+            <button data-example-mode="entry" data-example="tenho uma prova dificil dia 22 e preciso me preparar bem" type="button">Prova dificil</button>
+            <button data-example-mode="entry" data-example="entrega do relatorio executivo dia 25 com assinatura do orientador" type="button">Entrega academica</button>
+            <button data-example-mode="entry" data-example="academia segunda quarta e sexta por 1 hora" type="button">Rotina</button>
+            <button data-example-mode="report" data-example="hoje fiz metade do que planejei, nao consegui estudar porque fiquei cansado" type="button">Relato do dia</button>
+          </div>
+          <label>Escreva ou fale naturalmente
+            <textarea id="quickMessage" rows="7" placeholder="Ex: medico daqui 4 meses as 14h por 1h&#10;academia seg qua sex 60 min&#10;hoje fiz ingles, nao consegui treinar porque estava cansado"></textarea>
+          </label>
+          <div class="button-row">
+            <button id="voiceMessage" type="button">Audio</button>
+            <button id="addQuickEntry" class="primary" type="button">Enviar</button>
+          </div>
+          <div id="interpretationPreview" class="interpretation-preview">
+            <strong>Como vou entender</strong>
+            <p>Vou decidir se sua mensagem e tarefa, compromisso, rotina, meta ou relato do dia.</p>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="toolbar">
+          <div>
+            <p id="calendarEyebrow" class="eyebrow">Semana exibida</p>
+            <h2 id="weekTitle">Planejamento</h2>
+          </div>
+          <div class="button-row">
+            <button id="toggleCalendarView">Ver mes</button>
+            <button id="prevWeek">Anterior</button>
+            <button id="todayWeek">Hoje</button>
+            <button id="nextWeek">Proximo</button>
+            <button id="generatePlan">Reorganizar semana</button>
+            <button id="enableAlarms">Ativar alarmes</button>
+            <button id="exportIcs">Exportar calendario</button>
+            <button id="clearData" class="danger">Limpar</button>
+          </div>
+        </header>
+
+        <section class="stats-grid">
+          <article><span id="statGoals">0</span><p>metas</p></article>
+          <article><span id="statItems">0</span><p>itens ativos</p></article>
+          <article><span id="statReports">0</span><p>relatos</p></article>
+          <article><span id="statFocus">0h</span><p>foco na semana</p></article>
+        </section>
+
+        <section class="insight-grid">
+          <article class="list-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Hoje</p>
+                <h2>Roteiro do dia</h2>
+              </div>
+            </div>
+            <div id="todayAgenda" class="compact-list"></div>
+          </article>
+          <article class="list-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Proximos</p>
+                <h2>Prazos e eventos</h2>
+              </div>
+            </div>
+            <div id="deadlineList" class="compact-list"></div>
+          </article>
+        </section>
+
+        <section class="focus-panel">
+          <div>
+            <p class="eyebrow">Agora</p>
+            <h2 id="focusTitle">Sem bloco ativo</h2>
+            <p id="focusDetail" class="muted">Ative os alarmes e deixe esta pagina aberta para receber os avisos.</p>
+          </div>
+          <div class="focus-clock">
+            <span id="focusTimer">--:--</span>
+            <small id="alarmStatus">Alarmes pausados</small>
+          </div>
+        </section>
+
+        <section id="weekGrid" class="week-grid"></section>
+
+        <section class="list-panel">
+          <h2>Entradas</h2>
+          <div id="entriesList" class="entries-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js?v=13"></script>
+  </body>
+</html>
