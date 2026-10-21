@@ -135,6 +135,14 @@ Pronto quando: duas manhãs seguidas o checklist aparece atualizado sem você ro
 
 - **Flags do `claude -p`** (início da F2): rodar sem ferramentas, sem plugins/hooks e com
   `--no-session-persistence`, pra não criar sessão que a própria rodada leria de novo.
+  _Verificado em 21/10:_ `--bare` não serve (exige chave de API; o login é da assinatura).
+  Combinação usada: `-p --model haiku --tools "" --no-session-persistence --strict-mcp-config
+  --setting-sources local --disable-slash-commands --system-prompt … --output-format json
+  --json-schema …`, prompt pelo stdin em UTF-8, rodando em `%TEMP%\agenda-sync-claude`.
+  Nenhum `.jsonl` novo é criado; o `claude` cria só uma pasta vazia de memória para essa pasta
+  de trabalho. Com registro real, cada resumo leva de 10 a 45 s.
+  Os resumos ficam em cache em `sync-data/summaries/` (fora do git), com chave = versão do
+  prompt + estado anterior + registro do dia; rodar de novo não chama a IA para o que não mudou.
 - **Limite de uso** na carga inicial (~40 dias × alguns projetos): digest cortado, modelo
   leve, e carga inicial em lotes se precisar.
 - **Tarefa agendada e credencial**: roda só com seu usuário logado, onde o login do Claude está.

@@ -6,7 +6,7 @@ agenda-data.json
 
 # Sync das sessões (conteúdo pessoal/da Seazone, nunca versionar)
 sync-preview/
-sync-state.json
+sync-data/
 sync/logs/
 
 # Dependencies
