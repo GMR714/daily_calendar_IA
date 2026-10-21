@@ -1,0 +1,9 @@
+{
+  "name": "agenda-inteligente",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "sync": "node sync/run.js"
+  }
+}
