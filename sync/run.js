@@ -8,11 +8,13 @@ const { listSessionFiles, readRecords } = require("./sessions");
 const { createDigestBuilder, renderDigest, localDay } = require("./digest");
 const { PROMPT_VERSION, summarizeProject, claudeRunner } = require("./summarize");
 const vault = require("./vault");
+const agendaStore = require("./agenda");
 
 const DEFAULT_PROJECTS_DIR = process.env.CLAUDE_PROJECTS_DIR || path.join(os.homedir(), ".claude", "projects");
 const DEFAULT_OUT_DIR = path.join(__dirname, "..", "sync-preview");
 const DEFAULT_DATA_DIR = process.env.AGENDA_SYNC_DATA_DIR || path.join(__dirname, "..", "sync-data");
 const DEFAULT_VAULT_DIR = process.env.OBSIDIAN_VAULT_DIR || path.join(os.homedir(), "Documents", "Obsidian Vault");
+const DEFAULT_AGENDA_FILE = process.env.AGENDA_DATA_FILE || path.join(__dirname, "..", "agenda-data.json");
 // Pasta neutra para o `claude -p`: fica em Temp, que a coleta já ignora.
 const CLAUDE_WORK_DIR = path.join(os.tmpdir(), "agenda-sync-claude");
 const DAY_MS = 86400e3;
@@ -164,6 +166,8 @@ async function runVault({
   vaultDir = DEFAULT_VAULT_DIR,
   previewDir = path.join(DEFAULT_OUT_DIR, "vault"),
   dataDir = DEFAULT_DATA_DIR,
+  agendaFile = null,
+  agendaPreviewFile = path.join(DEFAULT_OUT_DIR, "agenda-data.json"),
   config = loadConfig(),
   since,
   until,
@@ -184,6 +188,7 @@ async function runVault({
   const run = runner || claudeRunner({ model, cwd: CLAUDE_WORK_DIR });
   const cacheDir = path.join(dataDir, "summaries");
   const history = loadSummaryCache(cacheDir);
+  const agenda = agendaFile ? agendaStore.loadAgenda(agendaFile) : null;
   const processed = [];
   const counts = { summarized: 0, cached: 0, failed: 0, pending: 0 };
   let limitHit = false;
@@ -191,7 +196,10 @@ async function runVault({
   for (const [index, item] of items.entries()) {
     const previous = lastGoodBefore(history.get(projectKey(item.area, item.project)), item.day);
     const previousState = previous ? previous.summary.estadoAtual : null;
-    const key = crypto.createHash("sha1").update(`${PROMPT_VERSION}\n${previousState}\n${item.text}`).digest("hex");
+    const openTasks = agenda ? agendaStore.openTasksFor(agenda, agendaStore.projectId(item.area, item.project)) : [];
+    // Sem tarefas abertas a chave fica igual à de antes, e o cache já feito continua valendo.
+    const tasksKey = openTasks.length ? `${JSON.stringify(openTasks)}\n` : "";
+    const key = crypto.createHash("sha1").update(`${PROMPT_VERSION}\n${previousState}\n${tasksKey}${item.text}`).digest("hex");
     const cacheFile = path.join(cacheDir, item.day, `${vault.safeName(item.area)} - ${vault.safeName(item.project)}.json`);
     const label = `[${index + 1}/${items.length}] ${item.day} ${item.area} / ${item.project}`;
 
@@ -211,6 +219,7 @@ async function runVault({
         day: item.day,
         previousState,
         knownPlaces: previous ? previous.summary.ondeEstaCadaCoisa : [],
+        openTasks,
         digestText: item.text
       }, { runner: run });
       entry = { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary, error, limit };
@@ -267,11 +276,20 @@ async function runVault({
   write(vault.INDEX_PATH, current => vault.upsertBlocks(current, { indice: vault.renderIndex(rows) }, { initial: vault.indexTemplate() }));
 
   if (!dryRun) vault.pruneBackups(path.join(vaultDir, ".sync-backup"), today);
-  return { ...counts, limitHit, projectDays: items.length, days: days.length, target };
+
+  let tasks = { added: 0, closed: 0 };
+  if (agenda) {
+    const result = agendaStore.applySummaries(agenda, processed, { now: new Date().toISOString() });
+    tasks = result;
+    if (dryRun) agendaStore.saveAgenda(agendaPreviewFile, result.data);
+    else agendaStore.saveAgenda(agendaFile, result.data, { backupFile: path.join(dataDir, "agenda-backup", `${today}.json`) });
+  }
+
+  return { ...counts, limitHit, tasksAdded: tasks.added, tasksClosed: tasks.closed, projectDays: items.length, days: days.length, target };
 }
 
 function parseArgs(argv) {
-  const args = { digest: false, vault: false, dryRun: false };
+  const args = { digest: false, vault: false, dryRun: false, agendaFile: DEFAULT_AGENDA_FILE };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--digest") args.digest = true;
@@ -281,6 +299,8 @@ function parseArgs(argv) {
     else if (arg === "--ate") args.until = argv[++i];
     else if (arg === "--saida") args.outDir = path.resolve(argv[++i]);
     else if (arg === "--vault-dir") args.vaultDir = path.resolve(argv[++i]);
+    else if (arg === "--agenda-file") args.agendaFile = path.resolve(argv[++i]);
+    else if (arg === "--sem-agenda") args.agendaFile = null;
     else if (arg === "--modelo") args.model = argv[++i];
     else if (arg === "--max-chars") args.maxChars = Number(argv[++i]);
     else throw new Error(`Argumento desconhecido: ${arg}`);
@@ -291,7 +311,7 @@ function parseArgs(argv) {
 const USAGE = [
   "Uso:",
   "  node sync/run.js --digest --desde AAAA-MM-DD [--ate AAAA-MM-DD] [--saida pasta]",
-  "  node sync/run.js --vault --desde AAAA-MM-DD [--ate AAAA-MM-DD] [--dry-run] [--vault-dir pasta] [--modelo haiku]"
+  "  node sync/run.js --vault --desde AAAA-MM-DD [--ate AAAA-MM-DD] [--dry-run] [--vault-dir pasta] [--agenda-file arquivo | --sem-agenda] [--modelo haiku]"
 ].join("\n");
 
 async function main() {
@@ -313,8 +333,9 @@ async function main() {
     return;
   }
 
-  const result = await runVault({ since, until, dryRun: args.dryRun, vaultDir: args.vaultDir, model: args.model, maxChars: args.maxChars, today, log: line => console.log(line) });
+  const result = await runVault({ since, until, dryRun: args.dryRun, vaultDir: args.vaultDir, agendaFile: args.agendaFile, model: args.model, maxChars: args.maxChars, today, log: line => console.log(line) });
   console.log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.days} diários (${seconds()}s).`);
+  if (args.agendaFile) console.log(`Agenda${args.dryRun ? " (prévia)" : ""}: ${result.tasksAdded} tarefas sugeridas, ${result.tasksClosed} fechadas.`);
   if (result.limitHit) console.log("Limite de uso do Claude atingido. Rode de novo depois que ele renovar: o que já foi resumido está no cache.");
   console.log(`${args.dryRun ? "Prévia do vault" : "Vault"} em ${result.target}`);
   if (result.failed || result.pending) process.exitCode = 2;

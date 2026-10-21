@@ -1,0 +1,130 @@
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const { projectNotePath } = require("./vault");
+
+const OPEN = new Set(["sugerida", "confirmada"]);
+const DEFAULT_DURATION = 60;
+const DEFAULT_PRIORITY = 2;
+
+function slug(text) {
+  return String(text)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function projectId(area, project) {
+  return `${slug(area)}/${slug(project)}`;
+}
+
+// Mesmo título com outra caixa, acento ou pontuação é a mesma tarefa.
+function fingerprint(pid, title) {
+  return `${pid}::${slug(title)}`;
+}
+
+function taskId(print) {
+  return `sync-${crypto.createHash("sha1").update(print).digest("hex").slice(0, 12)}`;
+}
+
+function loadAgenda(file) {
+  const empty = { entries: [], reports: [], projects: [], opens: [] };
+  if (!fs.existsSync(file)) return empty;
+  const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  return {
+    ...parsed,
+    entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+    reports: Array.isArray(parsed.reports) ? parsed.reports : [],
+    projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+    opens: Array.isArray(parsed.opens) ? parsed.opens : []
+  };
+}
+
+// Guarda a primeira versão do dia antes de sobrescrever e troca o arquivo de uma vez.
+function saveAgenda(file, data, { backupFile } = {}) {
+  if (backupFile && fs.existsSync(file) && !fs.existsSync(backupFile)) {
+    fs.mkdirSync(path.dirname(backupFile), { recursive: true });
+    fs.copyFileSync(file, backupFile);
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.sync-tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
+}
+
+function isOpenSyncTask(entry, pid) {
+  return entry.source === "sync" && entry.projectId === pid && OPEN.has(entry.status);
+}
+
+function openTasksFor(data, pid) {
+  return (data.entries || []).filter(entry => isOpenSyncTask(entry, pid)).map(entry => ({ id: entry.id, titulo: entry.text }));
+}
+
+function upsertProject(projects, item, now) {
+  const id = projectId(item.area, item.project);
+  const note = projectNotePath(item.area, item.project).replace(/\.md$/, "");
+  const existing = projects.find(p => p.id === id);
+  if (!existing) {
+    return [...projects, { id, name: item.project, area: item.area, priority: DEFAULT_PRIORITY, goalId: null, deadline: null, lastActivity: item.day, note, createdAt: now, updatedAt: now }];
+  }
+  const lastActivity = existing.lastActivity && existing.lastActivity > item.day ? existing.lastActivity : item.day;
+  if (lastActivity === existing.lastActivity && existing.note === note) return projects;
+  return projects.map(p => (p.id === id ? { ...p, name: item.project, area: item.area, lastActivity, note, updatedAt: now } : p));
+}
+
+// Recebe os resumos da rodada em ordem de dia. Fecha o que cada dia mostrou feito;
+// tarefas novas só do resumo mais recente de cada projeto (os próximos passos de dias
+// antigos ou já foram feitos ou foram substituídos pelos do dia seguinte).
+function applySummaries(data, processed, { now }) {
+  let entries = (data.entries || []).slice();
+  let projects = (data.projects || []).slice();
+  let added = 0;
+  let closed = 0;
+  const withSummary = processed.filter(item => item.summary);
+
+  for (const item of withSummary) {
+    projects = upsertProject(projects, item, now);
+    const pid = projectId(item.area, item.project);
+    for (const done of item.summary.tarefasConcluidas || []) {
+      const index = entries.findIndex(entry => entry.id === done.id && isOpenSyncTask(entry, pid));
+      if (index === -1) continue;
+      const task = entries[index];
+      entries[index] = { ...task, previousStatus: task.status, status: "feita", doneAuto: true, doneBy: { day: item.day, evidence: done.evidencia }, updatedAt: now };
+      closed += 1;
+    }
+  }
+
+  const latest = new Map();
+  for (const item of withSummary) latest.set(projectId(item.area, item.project), item);
+  for (const [pid, item] of latest) {
+    for (const task of item.summary.tarefasNovas || []) {
+      const print = fingerprint(pid, task.titulo);
+      if (entries.some(entry => entry.fingerprint === print)) continue;
+      entries.push({
+        id: taskId(print),
+        type: "task",
+        source: "sync",
+        status: "sugerida",
+        text: task.titulo,
+        context: task.contexto,
+        projectId: pid,
+        date: task.prazo || null,
+        time: null,
+        duration: DEFAULT_DURATION,
+        priority: DEFAULT_PRIORITY,
+        preferredDays: [],
+        fingerprint: print,
+        origin: { day: item.day, area: item.area, project: item.project },
+        createdAt: now,
+        updatedAt: now
+      });
+      added += 1;
+    }
+  }
+
+  return { data: { ...data, entries, projects }, added, closed };
+}
+
+module.exports = { projectId, fingerprint, openTasksFor, applySummaries, loadAgenda, saveAgenda };
