@@ -176,3 +176,53 @@ test("dry-run grava a agenda só na prévia", async () => {
   const preview = JSON.parse(fs.readFileSync(agendaPreviewFile, "utf8"));
   assert.equal(preview.entries.length, 2);
 });
+
+function addPokeDay(projects, sessionId, iso, text) {
+  fs.writeFileSync(path.join(projects, "C--Dev-PokeSurvivors", `${sessionId}.jsonl`), jsonl([
+    { type: "user", sessionId, timestamp: iso, cwd: "C:\\Dev\\PokeSurvivors", message: { content: text } }
+  ]));
+}
+
+test("teto da rodada: termina o dia em curso, não começa outro e deixa o resto pendente", async () => {
+  const { root, projects } = makeProjectsDir();
+  addPokeDay(projects, "s3", "2026-10-21T13:00:00.000Z", "Agora o placar");
+  let calls = 0;
+  const runner = async () => { calls += 1; return fakeSummary("x"); };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-22", maxSummaries: 1 });
+  assert.equal(calls, 1);
+  assert.equal(result.summarized, 1);
+  assert.equal(result.pending, 1);
+  assert.equal(result.limitHit, false);
+  assert.deepEqual(result.pendingDays, ["2026-10-21"]);
+  assert.deepEqual(result.failedDays, []);
+  assert.match(fs.readFileSync(path.join(root, "vault", "Diário", "2026-10-21.md"), "utf8"), /resumo pendente: teto de resumos da rodada/);
+});
+
+test("rodada separa dias que falharam dos que ficaram pendentes", async () => {
+  const { root, projects } = makeProjectsDir();
+  addPokeDay(projects, "s3", "2026-10-21T13:00:00.000Z", "Agora o placar");
+  let calls = 0;
+  const runner = async () => {
+    calls += 1;
+    if (calls <= 2) return { estadoAtual: "sem o resto" };
+    throw new Error("claude: You've hit your session limit · resets 4pm");
+  };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-22" });
+  assert.deepEqual(result.failedDays, ["2026-10-20"]);
+  assert.deepEqual(result.pendingDays, ["2026-10-21"]);
+});
+
+test("o que o app grava na agenda durante a rodada não se perde", async () => {
+  const { root, projects } = makeProjectsDir();
+  const agendaFile = path.join(root, "agenda-data.json");
+  fs.writeFileSync(agendaFile, JSON.stringify({ entries: [], reports: [] }));
+  const fromApp = { id: "manual-durante", type: "task", text: "Criada no app no meio da rodada", updatedAt: "2026-10-21T06:01:00.000Z" };
+  const runner = async () => {
+    fs.writeFileSync(agendaFile, JSON.stringify({ entries: [fromApp], reports: [] }));
+    return fakeSummary("2026-10-20");
+  };
+  await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), agendaFile, config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-21" });
+  const agenda = JSON.parse(fs.readFileSync(agendaFile, "utf8"));
+  assert.deepEqual(agenda.entries.find(e => e.id === "manual-durante"), fromApp);
+  assert.ok(agenda.entries.some(e => e.status === "sugerida"));
+});

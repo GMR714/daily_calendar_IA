@@ -4,6 +4,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "sync": "node sync/run.js"
+    "sync": "node sync/run.js",
+    "sync:diaria": "node sync/daily.js"
   }
 }

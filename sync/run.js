@@ -175,6 +175,7 @@ async function runVault({
   maxChars = 40000,
   runner,
   model = "haiku",
+  maxSummaries = Infinity,
   dryRun = false,
   today = localDay(new Date().toISOString(), offsetHours),
   log = () => {}
@@ -192,6 +193,9 @@ async function runVault({
   const processed = [];
   const counts = { summarized: 0, cached: 0, failed: 0, pending: 0 };
   let limitHit = false;
+  let capHit = false;
+  let calls = 0;
+  let lastCallDay = null;
 
   for (const [index, item] of items.entries()) {
     const previous = lastGoodBefore(history.get(projectKey(item.area, item.project)), item.day);
@@ -203,15 +207,25 @@ async function runVault({
     const cacheFile = path.join(cacheDir, item.day, `${vault.safeName(item.area)} - ${vault.safeName(item.project)}.json`);
     const label = `[${index + 1}/${items.length}] ${item.day} ${item.area} / ${item.project}`;
 
+    // O teto só vale na virada do dia: um dia nunca fica pela metade por causa dele.
+    if (!capHit && calls >= maxSummaries && item.day !== lastCallDay) {
+      capHit = true;
+      log(`Teto de ${maxSummaries} resumos da rodada atingido: o resto fica pendente para a próxima rodada.`);
+    }
+
     let entry = readJson(cacheFile);
     if (entry && entry.key === key && entry.summary) {
       counts.cached += 1;
       log(`${label}: cache`);
-    } else if (limitHit) {
-      // Depois do limite de uso, nem tenta: o dia fica pendente para a próxima rodada.
-      entry = { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary: null, error: "limite de uso", limit: true };
+    } else if (limitHit || capHit) {
+      // Depois do limite de uso ou do teto, nem tenta: o dia fica pendente para a próxima rodada.
+      entry = limitHit
+        ? { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary: null, error: "limite de uso", limit: true }
+        : { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary: null, error: "teto da rodada", capped: true };
       counts.pending += 1;
     } else {
+      calls += 1;
+      lastCallDay = item.day;
       const started = Date.now();
       const { summary, error, limit } = await summarizeProject({
         area: item.area,
@@ -279,13 +293,26 @@ async function runVault({
 
   let tasks = { added: 0, closed: 0 };
   if (agenda) {
-    const result = agendaStore.applySummaries(agenda, processed, { now: new Date().toISOString() });
+    // Relê o arquivo: o app pode ter gravado nele enquanto a IA resumia.
+    const result = agendaStore.applySummaries(agendaStore.loadAgenda(agendaFile), processed, { now: new Date().toISOString() });
     tasks = result;
     if (dryRun) agendaStore.saveAgenda(agendaPreviewFile, result.data);
     else agendaStore.saveAgenda(agendaFile, result.data, { backupFile: path.join(dataDir, "agenda-backup", `${today}.json`) });
   }
 
-  return { ...counts, limitHit, tasksAdded: tasks.added, tasksClosed: tasks.closed, projectDays: items.length, days: days.length, target };
+  const daysWhere = test => Array.from(new Set(processed.filter(test).map(e => e.day))).sort();
+  return {
+    ...counts,
+    limitHit,
+    capHit,
+    tasksAdded: tasks.added,
+    tasksClosed: tasks.closed,
+    projectDays: items.length,
+    days: days.length,
+    failedDays: daysWhere(e => !e.summary && !e.limit && !e.capped),
+    pendingDays: daysWhere(e => !e.summary && (e.limit || e.capped)),
+    target
+  };
 }
 
 function parseArgs(argv) {
@@ -348,4 +375,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { runDigest, runVault, parseArgs };
+module.exports = { runDigest, runVault, parseArgs, DEFAULT_DATA_DIR, DEFAULT_AGENDA_FILE };
