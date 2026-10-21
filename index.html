@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agenda Inteligente</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="product.css?v=24" />
   </head>
   <body>
     <main class="app-shell">
@@ -20,7 +21,7 @@
           <div class="mode-toggle" role="group" aria-label="Tipo de mensagem">
             <button class="active" data-mode="auto" type="button">Auto</button>
             <button data-mode="entry" type="button">Tarefa</button>
-            <button data-mode="report" type="button">Relato</button>
+            <button data-mode="report" type="button">Check-in</button>
           </div>
           <div class="prompt-chips" aria-label="Exemplos rapidos">
             <button data-example-mode="entry" data-example="tenho uma prova dificil dia 22 e preciso me preparar bem" type="button">Prova dificil</button>
@@ -40,31 +41,77 @@
             <p>Vou decidir se sua mensagem e tarefa, compromisso, rotina, meta ou relato do dia.</p>
           </div>
         </section>
+
+        <details class="panel settings-panel">
+          <summary>Disponibilidade e carga</summary>
+          <div class="settings-grid">
+            <label>Inicio do dia <input id="prefStart" type="time" value="08:00" /></label>
+            <label>Fim do dia <input id="prefEnd" type="time" value="21:00" /></label>
+            <label>Carga de tarefas por dia <input id="prefFocusLimit" type="number" min="60" max="720" step="30" value="240" /></label>
+          </div>
+          <button id="savePreferences" type="button">Salvar disponibilidade</button>
+        </details>
       </aside>
 
       <section class="workspace">
-        <header class="toolbar">
-          <div>
-            <p id="calendarEyebrow" class="eyebrow">Semana exibida</p>
-            <h2 id="weekTitle">Planejamento</h2>
+        <section class="calendar-primary" aria-label="Calendario principal">
+          <header class="calendar-toolbar">
+            <div class="calendar-title">
+              <p id="calendarEyebrow" class="eyebrow">Semana exibida</p>
+              <h2 id="weekTitle">Planejamento</h2>
+            </div>
+            <div class="calendar-controls">
+              <div class="calendar-nav" aria-label="Navegacao do calendario">
+                <button id="prevWeek" class="icon-button" type="button" aria-label="Periodo anterior" title="Periodo anterior">&#8592;</button>
+                <button id="todayWeek" type="button">Hoje</button>
+                <button id="nextWeek" class="icon-button" type="button" aria-label="Proximo periodo" title="Proximo periodo">&#8594;</button>
+              </div>
+              <div class="view-toggle" role="group" aria-label="Visualizacao">
+                <button data-calendar-view="day" type="button">Dia</button>
+                <button class="active" data-calendar-view="week" type="button">Semana</button>
+                <button data-calendar-view="month" type="button">Mes</button>
+              </div>
+              <button id="generatePlan" class="calendar-replan" type="button">Reorganizar</button>
+              <details class="calendar-actions-menu">
+                <summary>Acoes</summary>
+                <div>
+                  <button id="enableAlarms" type="button">Ativar alarmes</button>
+                  <button id="exportIcs" type="button">Exportar calendario</button>
+                  <button id="clearData" class="danger" type="button">Limpar dados</button>
+                </div>
+              </details>
+            </div>
+          </header>
+
+          <div class="calendar-classification">
+            <div class="classification-group">
+              <span class="classification-label">Destacar</span>
+              <div id="calendarFilters" class="calendar-filters" role="group" aria-label="Destacar categoria"></div>
+            </div>
+            <label class="free-time-toggle"><input id="toggleFreeTime" type="checkbox" checked /> Horarios livres</label>
           </div>
-          <div class="button-row">
-            <button id="toggleCalendarView">Ver mes</button>
-            <button id="prevWeek">Anterior</button>
-            <button id="todayWeek">Hoje</button>
-            <button id="nextWeek">Proximo</button>
-            <button id="generatePlan">Reorganizar semana</button>
-            <button id="enableAlarms">Ativar alarmes</button>
-            <button id="exportIcs">Exportar calendario</button>
-            <button id="clearData" class="danger">Limpar</button>
-          </div>
-        </header>
+
+          <section id="goalLegend" class="goal-legend" aria-label="Metas"></section>
+          <section id="planWarnings" class="planning-warnings" hidden></section>
+          <section id="weekGrid" class="week-grid"></section>
+        </section>
 
         <section class="stats-grid">
           <article><span id="statGoals">0</span><p>metas</p></article>
           <article><span id="statItems">0</span><p>itens ativos</p></article>
           <article><span id="statReports">0</span><p>relatos</p></article>
-          <article><span id="statFocus">0h</span><p>foco na semana</p></article>
+          <article><span id="statFocus">0h</span><p>tempo planejado</p></article>
+        </section>
+
+        <section class="list-panel goals-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Direcao</p>
+              <h2>Metas e planos ativos</h2>
+            </div>
+            <button id="newGoal" type="button">Nova meta</button>
+          </div>
+          <div id="goalsBoard" class="goals-board"></div>
         </section>
 
         <section class="insight-grid">
@@ -86,6 +133,15 @@
             </div>
             <div id="deadlineList" class="compact-list"></div>
           </article>
+          <article class="list-panel checkin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Aprendizado</p>
+                <h2>Ultimos check-ins</h2>
+              </div>
+            </div>
+            <div id="recentCheckins" class="compact-list"></div>
+          </article>
         </section>
 
         <section class="focus-panel">
@@ -100,15 +156,102 @@
           </div>
         </section>
 
-        <section id="weekGrid" class="week-grid"></section>
-
         <section class="list-panel">
-          <h2>Entradas</h2>
+          <div class="panel-heading">
+            <h2>Tarefas e rotinas</h2>
+            <button id="newEntry" type="button">Nova tarefa</button>
+          </div>
           <div id="entriesList" class="entries-list"></div>
         </section>
       </section>
     </main>
 
-    <script src="app.js?v=13"></script>
+    <dialog id="entryDialog" class="editor-dialog">
+      <form id="entryForm" method="dialog">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Edicao manual</p>
+            <h2 id="entryDialogTitle">Editar tarefa</h2>
+          </div>
+          <button id="closeEntryDialog" type="button" aria-label="Fechar">X</button>
+        </div>
+        <input id="editEntryId" type="hidden" />
+        <input id="editOccurrenceDate" type="hidden" />
+        <label>Titulo <input id="editText" required /></label>
+        <label>Como fazer <textarea id="editInstructions" rows="3" placeholder="Passos praticos, um por linha"></textarea></label>
+        <div class="form-grid">
+          <label>Tipo
+            <select id="editType">
+              <option value="task">Tarefa</option>
+              <option value="event">Compromisso</option>
+              <option value="routine">Rotina</option>
+            </select>
+          </label>
+          <label>Categoria visual
+            <select id="editCalendarCategory">
+              <option value="">Automatica</option>
+              <option value="work">Trabalho</option>
+              <option value="study">Estudo</option>
+              <option value="project">Projetos</option>
+              <option value="career">Carreira</option>
+              <option value="health">Saude</option>
+              <option value="routine">Rotina</option>
+              <option value="admin">Administrativo</option>
+              <option value="personal">Pessoal</option>
+            </select>
+          </label>          <label>Meta <select id="editGoalId"><option value="">Sem meta</option></select></label>
+          <label>Data <input id="editDate" type="date" /></label>
+          <label>Hora <input id="editTime" type="time" /></label>
+          <label>Prazo <input id="editDeadline" type="date" /></label>
+          <label>Esforco total (min) <input id="editDuration" type="number" min="15" step="15" /></label>
+          <label>Marco do plano <input id="editMilestone" placeholder="Ex: Fundamentos" /></label>
+          <label>Criterio de conclusao <input id="editCompletionCriteria" placeholder="Ex: resolver 10 exercicios sem ajuda" /></label>
+          <label>Prioridade
+            <select id="editPriority"><option value="1">Baixa</option><option value="2">Media</option><option value="3">Alta</option></select>
+          </label>
+          <label>Status
+            <select id="editStatus"><option value="pending">Pendente</option><option value="active">Ativa</option><option value="paused">Pausada</option><option value="completed">Concluida</option></select>
+          </label>
+          <label id="editScopeLabel">Aplicar alteracao
+            <select id="editScope"><option value="all">Toda a rotina</option><option value="occurrence">Somente esta ocorrencia</option></select>
+          </label>
+        </div>
+        <fieldset id="weekdayFieldset">
+          <legend>Dias da recorrencia</legend>
+          <div class="weekday-picker">
+            <label><input type="checkbox" value="0" /> Seg</label><label><input type="checkbox" value="1" /> Ter</label>
+            <label><input type="checkbox" value="2" /> Qua</label><label><input type="checkbox" value="3" /> Qui</label>
+            <label><input type="checkbox" value="4" /> Sex</label><label><input type="checkbox" value="5" /> Sab</label>
+            <label><input type="checkbox" value="6" /> Dom</label>
+          </div>
+        </fieldset>
+        <div class="dialog-actions">
+          <button id="deleteEntry" class="danger" type="button">Excluir</button>
+          <button id="saveEntry" class="primary" type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="goalDialog" class="editor-dialog">
+      <form id="goalForm" method="dialog">
+        <div class="dialog-heading"><h2 id="goalDialogTitle">Nova meta</h2><button id="closeGoalDialog" type="button">X</button></div>
+        <input id="editGoalRecordId" type="hidden" />
+        <label>Meta <input id="goalTitleInput" required placeholder="Ex: concluir TCC com qualidade" /></label>
+        <label>Resultado esperado <textarea id="goalDescriptionInput" rows="3"></textarea></label>
+        <label>Estrategia <textarea id="goalStrategyInput" rows="3" placeholder="Como esta meta sera alcancada"></textarea></label>
+        <label>Criterios de sucesso <textarea id="goalCriteriaInput" rows="3" placeholder="Um resultado verificavel por linha"></textarea></label>
+        <div class="form-grid">
+          <label>Prazo alvo <input id="goalTargetInput" type="date" /></label>
+          <label>Tempo por semana (min) <input id="goalWeeklyMinutesInput" type="number" min="30" max="2400" step="30" value="240" /></label>
+          <label>Prioridade <select id="goalPriorityInput"><option value="1">Baixa</option><option value="2">Media</option><option value="3">Alta</option></select></label>
+          <label>Status <select id="goalStatusInput"><option value="active">Ativa</option><option value="paused">Pausada</option><option value="completed">Concluida</option></select></label>
+        </div>
+        <div class="dialog-actions"><button id="deleteGoal" class="danger" type="button">Excluir</button><button class="primary" type="submit">Salvar meta</button></div>
+      </form>
+    </dialog>
+
+    <script src="planner-core.js?v=24"></script>
+    <script src="product-ui.js?v=24"></script>
+    <script src="app.js?v=24"></script>
   </body>
 </html>

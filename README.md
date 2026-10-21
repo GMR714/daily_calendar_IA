@@ -1,111 +1,151 @@
-# Assistente de Semana e Metas
+# Agenda Inteligente
 
-MVP local para organizar semana, compromissos, rotinas, metas e relatos diarios com suporte futuro a IA, Google Calendar e WhatsApp.
+Agenda pessoal para transformar objetivos em etapas executaveis, reservar tempo na rotina e revisar o plano com feedback. Usa Ollama, incluindo modelos cloud, ou Claude Code autenticado localmente; nao exige uma chave da OpenAI.
 
-## Como rodar
+## Iniciar
 
-Abra `index.html` no navegador.
-
-Opcionalmente, para testar os endpoints de integracao:
+Requer **Node.js 22.17 ou mais recente**. No Windows, abra `iniciar.cmd`. Ou execute:
 
 ```powershell
-node server.js
+npm start
 ```
 
-Depois acesse `http://localhost:8787`.
+Abra http://localhost:8787. Nao e necessario instalar dependencias para executar o servidor ou os testes de unidade. Se a porta estiver ocupada, altere `PORT` em `.env` ou encerre a instancia anterior.
 
-## Telegram barato/local
+### Painel Flutuante
 
-O caminho mais simples nao usa webhook publico. O servidor faz polling no Telegram enquanto estiver ligado.
+No Windows, execute `iniciar-painel.cmd` para abrir um painel compacto, sempre por cima das outras janelas. Arraste qualquer lateral ou canto para redimensionar. O botao de circulo no cabecalho alterna a opacidade do fundo entre 100%, 24% e sem fundo; o botao **A** alterna o texto entre preto, branco e cinza neutro opacos. O cinza foi escolhido para equilibrar o contraste sobre fundos brancos e pretos; sobre tons intermediarios, use preto ou branco conforme a leitura. No modo branco, o fundo ganha contraste escuro quando visivel. Tamanho, posicao, transparencia e cor do texto ficam salvos em `%LOCALAPPDATA%\DailyCalendarIA\overlay-settings.json`. A aba **Hoje** mostra horarios e cores das metas, atualiza a cada minuto e permite concluir o bloco exato. A aba **Notas** salva automaticamente um bloco de notas em `%LOCALAPPDATA%\DailyCalendarIA\notes.txt`.
 
-1. Crie um bot no Telegram com o `@BotFather`.
-2. Copie o token.
-3. Rode:
+O Pomodoro fica visivel no topo, com iniciar, pausar e reiniciar. Ele alterna 25 minutos de foco com 5 de pausa, oferece uma pausa de 15 minutos a cada quatro focos e avisa por som e notificacao quando a fase termina. Continua contando quando o painel esta minimizado; ao reabrir, recupera o tempo salvo. Os avisos dependem de o painel estar aberto.
 
-```powershell
-$env:TELEGRAM_BOT_TOKEN="seu_token_do_botfather"
-$env:AI_PROVIDER="ollama"
-$env:OLLAMA_HOST="http://localhost:11434"
-$env:OLLAMA_MODEL="minimax-m2.5:cloud"
-node server.js
-```
+A aba **IA** tem os modos **Planejar** e **Relatar**. A IA interpreta a mensagem, mostra cada mudanca proposta e so grava depois de **Aplicar**. O icone no cabecalho abre o calendario completo no navegador. O painel inicia o servidor em segundo plano quando necessario e, ao fechar, encerra somente a instancia que ele mesmo abriu.
 
-4. Abra o bot no Telegram e envie textos como:
-
-```text
-tenho uma prova dificil dia 22
-entrega do relatorio dia 25 com assinatura do orientador
-academia segunda quarta sexta por 1 hora
-```
-
-As mensagens do Telegram sao interpretadas pela IA, salvas em `agenda-data.json` e sincronizadas com o app web quando ele abrir/recarregar.
-
-## O que ja funciona no MVP
-
-- Cadastro de metas de longo prazo, rotinas recorrentes e compromissos pontuais.
-- Entrada unica por mensagem natural: o app decide se e tarefa, compromisso, rotina, meta ou relato do dia.
-- Exemplos rapidos ajudam a preencher pedidos comuns como prova dificil, entrega academica, rotina e relato.
-- Quando o Ollama estiver configurado, textos longos sao interpretados por LLM no endpoint `/api/interpret`.
-- Botao unico de audio para ditar a mensagem quando Web Speech API estiver disponivel.
-- Planejamento automatico da semana por blocos de tempo.
-- Entregas academicas viram plano de producao antes do prazo, nao apenas uma tarefa curta no dia da entrega.
-- Provas viram plano de estudo antes da data, com teoria, exercicios, simulado e revisao final.
-- Navegacao por semanas para ver blocos futuros no calendario.
-- Painel de hoje e proximos prazos para orientar o que fazer primeiro.
-- Integracao inicial com Telegram por polling local, sem precisar expor webhook publico.
-- Pomodoros automaticos: tarefas longas ganham ciclos de foco e pausas curtas.
-- Alarmes no navegador para aviso 10 minutos antes, inicio, pausas e fim dos blocos.
-- Relato diario por texto ou gravacao de audio no navegador.
-- Ajuste simples da agenda com base no motivo do que nao foi feito.
-- Exportacao `.ics` para importar em Google Calendar, Apple Calendar ou Outlook.
-- Endpoints base para WhatsApp webhook e chamada de IA.
-
-## Integracoes planejadas
-
-- Ollama: interpretar mensagens longas usando modelos locais ou cloud.
-- OpenAI: opcional para transcrever audio futuramente.
-- Google Calendar: criar/editar eventos direto na agenda.
-- WhatsApp Cloud API: receber mensagens e audios pelo telefone.
-
-## Observacao sobre WhatsApp
-
-Para integrar WhatsApp de forma oficial, o caminho e usar WhatsApp Business Platform / Cloud API da Meta, com webhooks em um servidor publico. O WhatsApp pessoal comum nao oferece API oficial para automacao.
-
-## Usar Ollama
-
-Padrao do projeto:
-
-```powershell
-$env:AI_PROVIDER="ollama"
-$env:OLLAMA_HOST="http://localhost:11434"
-$env:OLLAMA_MODEL="minimax-m2.5:cloud"
-$env:OLLAMA_FALLBACK_MODEL="gemma4:31b-cloud"
-node server.js
-```
-
-Antes disso, faca login e baixe o modelo cloud no Ollama:
+Para a interpretacao com IA, configure pelo menos um motor. A agenda manual continua funcionando sem IA.
 
 ```powershell
 ollama signin
-ollama pull minimax-m2.5:cloud
 ollama pull gemma4:31b-cloud
 ```
 
-Tambem e possivel usar a API cloud direta da Ollama:
+O padrao e `gemma4:31b-cloud`. Uma falha nunca transforma silenciosamente uma mensagem longa em uma unica tarefa. O texto permanece no campo para tentar novamente.
 
-```powershell
-$env:AI_PROVIDER="ollama"
-$env:OLLAMA_HOST="https://ollama.com"
-$env:OLLAMA_API_KEY="sua_chave_ollama"
-$env:OLLAMA_MODEL="minimax-m2.5:cloud"
-node server.js
+## Configuracao
+
+O servidor carrega `.env` automaticamente, quando existir. `.env.example` lista as opcoes sem segredos. As variaveis ja definidas no ambiente prevalecem.
+
+```dotenv
+PORT=8787
+HOST=127.0.0.1
+TZ=America/Sao_Paulo
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=gemma4:31b-cloud
+OLLAMA_FALLBACK_MODEL=
+AI_PROVIDER=ollama
+CLAUDE_CLI_MODEL=sonnet
+CLAUDE_CLI_EFFORT=high
+CLAUDE_CLI_TIMEOUT_MS=120000
 ```
 
-Alternativa:
+Tambem existe suporte a `OLLAMA_HOST=https://ollama.com` com `OLLAMA_API_KEY`. A disponibilidade dos modelos, limites e eventuais cobrancas dependem da conta Ollama. O projeto nao garante uso cloud ilimitado.
+
+### Claude Code Sem API Key
+
+Execute `claude setup-token` uma vez no terminal e conclua a autenticacao da sua assinatura. A agenda reutiliza essa sessao local; nao pede nem grava uma API key. Depois, atualize a pagina e escolha **Claude Code (assinatura)** em **Meus planos > Disponibilidade e ajustes**. Para tambem usar Claude no Telegram, defina `AI_PROVIDER=claude` no `.env` e reinicie o servidor.
+
+Cada mensagem inicia um processo `claude -p` com `stream-json` e schema de saida. O processo usa `restricted`, `safe-mode`, `dontAsk`, politica de negacao, sem plugins/MCP e sem persistencia de sessao. A unica ferramenta liberada e a interna `StructuredOutput`, necessaria para validar o JSON; shell, arquivos, web e subagentes permanecem bloqueados. Ele so pode devolver uma proposta; a agenda continua exigindo sua confirmacao antes de gravar qualquer alteracao. Ha no maximo duas execucoes simultaneas e cada uma tem timeout configuravel.
+
+Este caminho deve permanecer para sua agenda pessoal local. Antes de oferecer o produto para outras pessoas, use a autenticacao por API ou obtenha autorizacao da Anthropic para o tipo de uso.
+
+## Fluxo De Uso
+
+1. Defina sua disponibilidade e carga diaria em **Acoes > Disponibilidade e ajustes**.
+2. Envie suas rotinas fixas, compromissos e objetivos na caixa de mensagem. Pode usar ditado quando o navegador oferecer reconhecimento de voz.
+3. Revise a **proposta**: novas metas, etapas, estimativas, correcoes e exclusoes. Nada muda antes de confirmar.
+4. Acompanhe o calendario em **Dia**, **Semana** ou **Mes**. Cores podem representar categorias ou metas. Espacos livres permanecem visiveis.
+5. Abra um bloco para ver instrucoes, criterio de conclusao e registrar o tempo realizado. Uma sessao parcial nao conclui a tarefa inteira.
+6. Conte o que atrapalhou na mesma caixa de mensagem, selecionando **Relato**. A IA propoe ajustes para voce revisar.
+
+O calendario e a caixa de mensagem ficam na mesma tela. **Meus planos** reune metas, tarefas, relatos e ajustes em secoes recolhiveis, sem exigir navegar entre paginas. Filtros e cores ficam recolhidos junto ao calendario.
+
+**Meus planos > Metas** mostra estrategia, marcos, proximas acoes e criterios de sucesso. `Criar plano com IA` e `Revisar plano com IA` usam as etapas ja existentes. Concluir as etapas mede o progresso do plano; nao marca automaticamente a meta de vida como atingida.
+
+**Meus planos > Todas as tarefas e rotinas** permite editar os itens fora do calendario. Os campos mais frequentes aparecem primeiro; instrucoes, categoria, prioridade, meta e estado ficam em **Mais detalhes**. Para uma rotina, o editor diferencia a serie inteira de apenas uma ocorrencia. E possivel mover ou cancelar uma ocorrencia sem apagar as demais.
+
+## Regras Do Planejador
+
+- Compromissos e rotinas com horario confirmado reservam o calendario primeiro.
+- Horarios fixos em conflito nao sao deslocados em silencio: um item fica pendente, com aviso para revisao.
+- Tarefas flexiveis usam os intervalos restantes, respeitando a disponibilidade, dias preferidos, carga diaria de tarefas, carga semanal da meta e prazos.
+- `duration` representa o esforco total estimado, incluindo pausas. Trabalhos longos sao distribuidos em sessoes de ate 120 minutos. Pomodoros ficam dentro de cada intervalo, sem aumentar sua duracao.
+- As etapas seguem `planOrder`; dependencias explicitas podem usar `dependsOn` com IDs de tarefas existentes. Uma etapa bloqueada nao e executada antes de sua dependencia.
+- Consultas e provas futuras permanecem nas datas informadas. Preparacao e entrega sao itens separados.
+- O que nao cabe no prazo aparece como pendencia; o sistema nao sobrepoe blocos para fingir que tudo cabe.
+- Navegar pelo calendario nao modifica tarefas. O comando **Acoes > Replanejar a partir de agora** recalcula os itens flexiveis a partir do momento atual.
+- Nao existe deduplicacao destrutiva por palavras parecidas. Correcoes da IA usam IDs, com validacao antes de aplicar.
+
+O planejamento flexivel considera pelo menos 90 dias a partir de hoje e estende o horizonte ao navegar para datas posteriores, ate aproximadamente tres anos. Ocorrencias futuras ainda sao planejamento, nao comprovacao de execucao; use os registros de sessao e relatos para acompanhar o que realmente aconteceu.
+
+## Telegram
+
+Integracao por long polling, sem servidor publico ou webhook. O computador e o processo Node precisam permanecer ligados.
+
+1. Crie um bot com o BotFather. Se um token ja foi exposto em conversa ou repositorio, revogue-o e gere outro.
+2. Defina `TELEGRAM_BOT_TOKEN` em `.env` e reinicie o servidor.
+3. Envie `/start` ao bot. Ele informa seu chat ID, mas ainda nao mostra nem altera a agenda.
+4. Defina `TELEGRAM_ALLOWED_CHAT_ID` com esse ID e reinicie. Somente esse chat tera acesso.
+
+Comandos:
+
+- `/hoje`: blocos do dia.
+- `/semana`: proximos sete dias.
+- `/confirmar`: aplica a proposta pendente.
+- `/cancelar`: descarta a proposta.
+- `/ajuda`: comandos disponiveis.
+
+Mensagens normais geram propostas, como na interface. Uma proposta antiga e recusada se a agenda mudar antes da confirmacao. O navegador consulta mudancas a cada 15 segundos e identifica conflitos de edicao.
+
+**Audio anexado no Telegram ainda nao e transcrito.** Use o ditado do teclado para enviar texto. O ditado na pagina depende do navegador e pode usar o servico de reconhecimento do proprio navegador, nao o Ollama.
+
+## Dados E Seguranca
+
+- `agenda-data.json` e a fonte compartilhada entre navegador e Telegram.
+- Cada gravacao tem revisao e escrita atomica. As 30 versoes anteriores ficam em `.agenda-backups/`.
+- Arquivos corrompidos causam erro explicito; nao sao substituidos por uma agenda vazia.
+- A sincronizacao compara a versao anterior, a edicao local e a versao do servidor. Alteracoes independentes sao combinadas; conflitos ficam visiveis, sem sobrescrever em silencio.
+- O navegador guarda rascunhos e alteracoes pendentes durante falhas de conexao. Uma copia local anterior pode ser exportada em Ajustes.
+- Para restaurar manualmente um backup do servidor, pare o servidor, preserve o arquivo atual e substitua `agenda-data.json` por uma copia valida da pasta de backups. Reinicie e use a versao do servidor no navegador se houver conflito.
+- `.env`, dados, backups, logs e cursor do Telegram ficam fora do Git.
+- O servidor e pessoal e local, ligado a `127.0.0.1` por padrao. **Nao exponha essa porta na internet:** nao existe autenticacao multiusuario nem TLS.
+- Mensagens e contexto da agenda sao enviados ao motor escolhido para a interpretacao. Modelos cloud do Ollama e a API Claude processam esse contexto remotamente.
+
+## Limites Importantes
+
+Os alarmes funcionam com a pagina aberta, permissoes adequadas e sem suspensao do computador. O navegador pode atrasar timers em segundo plano; nao use este sistema como unico alarme para compromissos criticos. Nao existem notificacoes push com o aplicativo fechado.
+
+WhatsApp e sincronizacao bidirecional com Google Calendar nao estao implementados. A exportacao `.ics` e manual. O aplicativo nao deve afirmar que essas integracoes estao ativas.
+
+## Verificacao
 
 ```powershell
-$env:OLLAMA_MODEL="gemma4:31b-cloud"
-node server.js
+npm test
+npm run check
 ```
 
-Instrucao principal para a IA: preservar datas explicitas, separar textos longos em varios itens, nao mover itens futuros para a semana atual e deixar `date: null` quando o usuario nao informou data.
+Os testes usam somente arquivos temporarios, nunca a agenda real. Cobrem encaixe sem sobreposicao, duracoes, datas futuras, recorrencia, conflitos, armazenamento e propostas da API.
+
+Teste visual opcional: instale Playwright em um ambiente de desenvolvimento ou aponte `PLAYWRIGHT_MODULE` para uma instalacao existente; execute `node tests/ui.cjs`. `BROWSER_CHANNEL=msedge` usa o Edge instalado. O teste cria uma agenda isolada e captura desktop e celular em `.cache/`.
+
+`node tests/ollama-smoke.cjs` faz uma chamada real ao Ollama com um exemplo ficticio, sem gravar na agenda. Pode consumir a cota do provedor e nao faz parte de `npm test`.
+
+## Estrutura
+
+- `planner-core.js`: regras puras compartilhadas de planejamento, validacao, propostas e sincronizacao.
+- `agenda-store.js`: armazenamento atomico, revisoes e backups.
+- `server-runtime.js`: API local e confirmacao de propostas.
+- `overlay-core.js`: checklist de hoje e conclusao protegida de uma sessao.
+- `overlay.ps1`, `iniciar-painel.cmd`: painel flutuante nativo do Windows.
+- `ollama.js`, `claude.js`: adaptadores de IA que retornam somente uma proposta estruturada.
+- `ai-provider.js`: selecao isolada de Ollama ou Claude por mensagem.
+- `telegram.js`: autorizacao por chat, comandos e propostas.
+- `app.js`, `product-ui.js`: calendario, editores, feedback e sincronizacao.
+- `styles.css`, `product.css`: estilos base e interface reorganizada.
