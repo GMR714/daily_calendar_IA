@@ -121,14 +121,12 @@ async function syncToServer() {
 }
 
 function mergeItems(current = [], incoming = []) {
-  const map = new Map();
-  current.forEach(item => {
-    if (item?.id) map.set(item.id, item);
-  });
-  (Array.isArray(incoming) ? incoming : []).forEach(item => {
-    if (item?.id) map.set(item.id, { ...map.get(item.id), ...item });
-  });
-  return Array.from(map.values());
+  return window.AgendaMerge.mergeById(current, incoming);
+}
+
+// Tarefas vindas da rodada diária (source "sync") vivem no checklist, não na semana.
+function agendaEntries() {
+  return state.entries.filter(entry => entry.source !== "sync");
 }
 
 function setInputMode(mode) {
@@ -677,12 +675,12 @@ function adaptFromReports() {
 function generatePlan() {
   const weekStart = getVisibleWeekStart();
   const scheduled = [];
-  const datedEntries = state.entries.filter(entry => entry.date);
+  const datedEntries = agendaEntries().filter(entry => entry.date);
   const fixedDatedEntries = datedEntries.filter(entry => entry.time || entry.type === "event");
   const floatingDatedEntries = datedEntries
     .filter(entry => !entry.time && entry.type !== "event")
     .sort((a, b) => new Date(a.date) - new Date(b.date) || b.priority - a.priority);
-  const flexible = state.entries
+  const flexible = agendaEntries()
     .filter(entry => !entry.date)
     .sort((a, b) => b.priority - a.priority || typeWeight(b.type) - typeWeight(a.type));
 
@@ -819,8 +817,8 @@ function render() {
       ? monthCursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
       : `${formatDate(weekStart)} a ${formatDate(addDays(weekStart, 6))}`;
   }
-  if (el.statGoals) el.statGoals.textContent = state.entries.filter(entry => entry.type === "goal").length;
-  if (el.statItems) el.statItems.textContent = state.entries.length;
+  if (el.statGoals) el.statGoals.textContent = agendaEntries().filter(entry => entry.type === "goal").length;
+  if (el.statItems) el.statItems.textContent = agendaEntries().length;
   if (el.statReports) el.statReports.textContent = state.reports.length;
   if (el.statFocus) el.statFocus.textContent = formatFocusHours(state.plan);
   if (calendarView === "month") renderMonth(monthCursor);
@@ -857,7 +855,7 @@ function renderTodayAgenda() {
 function renderDeadlines() {
   if (!el.deadlineList) return;
   const today = startOfDay(new Date());
-  const upcoming = state.entries
+  const upcoming = agendaEntries()
     .filter(entry => entry.date && new Date(`${entry.date}T12:00`) >= today)
     .sort((a, b) => new Date(a.date) - new Date(b.date) || b.priority - a.priority)
     .slice(0, 6);
@@ -959,7 +957,7 @@ function renderMonth(monthStart) {
 
 function getItemsForDate(date) {
   const planned = state.plan.filter(item => isSameDay(new Date(item.start), date));
-  const entries = state.entries.filter(entry => entry.date && isSameDay(new Date(`${entry.date}T12:00`), date));
+  const entries = agendaEntries().filter(entry => entry.date && isSameDay(new Date(`${entry.date}T12:00`), date));
   const plannedIds = new Set(planned.map(item => item.entryId));
   return planned.concat(entries.filter(entry => !plannedIds.has(entry.id)));
 }
@@ -1081,11 +1079,12 @@ function formatCountdown(ms) {
 function renderEntries() {
   if (!el.entriesList) return;
   el.entriesList.innerHTML = "";
-  if (state.entries.length === 0) {
+  const entries = agendaEntries();
+  if (entries.length === 0) {
     el.entriesList.innerHTML = `<p class="muted">Adicione compromissos, rotinas e metas para montar a semana.</p>`;
     return;
   }
-  state.entries.forEach(entry => {
+  entries.forEach(entry => {
     const card = document.createElement("article");
     card.className = "entry-card";
     card.innerHTML = `
