@@ -178,6 +178,8 @@ function renderDiary(day, projects, loose = []) {
     const lines = [`## ${p.area} / [[${projectLinkTarget(p.area, p.project)}|${p.project}]]`];
     if (!p.summary && p.limit) {
       lines.push("_resumo pendente: limite de uso do Claude atingido; entra na próxima rodada._");
+    } else if (!p.summary && p.capped) {
+      lines.push("_resumo pendente: teto de resumos da rodada atingido; entra na próxima rodada._");
     } else if (!p.summary) {
       lines.push(`_resumo indisponível (${p.error || "erro"}); veja as sessões do dia._`);
     } else {
