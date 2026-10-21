@@ -125,3 +125,18 @@ test("dry-run não toca no vault", async () => {
   assert.deepEqual(fs.readdirSync(vaultDir), []);
   assert.ok(fs.existsSync(path.join(previewDir, "Projetos", "Pessoais", "PokeSurvivors.md")));
 });
+
+test("ao bater no limite de uso, para de chamar a IA e deixa o resto pendente", async () => {
+  const { root, projects } = makeProjectsDir();
+  fs.writeFileSync(path.join(projects, "C--Dev-PokeSurvivors", "s3.jsonl"), jsonl([
+    { type: "user", sessionId: "s3", timestamp: "2026-10-21T13:00:00.000Z", cwd: "C:\\Dev\\PokeSurvivors", message: { content: "Agora o placar" } }
+  ]));
+  let calls = 0;
+  const runner = async () => { calls += 1; throw new Error("claude: You've hit your session limit · resets 4pm"); };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-21" });
+  assert.equal(calls, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(result.pending, 1);
+  assert.equal(result.limitHit, true);
+  assert.match(fs.readFileSync(path.join(root, "vault", "Diário", "2026-10-21.md"), "utf8"), /resumo pendente: limite de uso do Claude/);
+});

@@ -74,6 +74,14 @@ test("desiste depois de duas falhas e devolve o motivo", async () => {
   assert.match(result.error, /timeout/);
 });
 
+test("limite de uso não gasta nova tentativa e é sinalizado", async () => {
+  let calls = 0;
+  const result = await summarizeProject(input, { runner: async () => { calls += 1; throw new Error("claude: You've hit your session limit · resets 4pm (America/Sao_Paulo)"); } });
+  assert.equal(calls, 1);
+  assert.equal(result.summary, null);
+  assert.equal(result.limit, true);
+});
+
 test("corta listas longas demais", async () => {
   const many = Array.from({ length: 10 }, (_, i) => ({ titulo: `T${i}`, contexto: "c", prazo: null }));
   const result = await summarizeProject(input, { runner: async () => goodSummary({ tarefasNovas: many }) });

@@ -185,7 +185,8 @@ async function runVault({
   const cacheDir = path.join(dataDir, "summaries");
   const history = loadSummaryCache(cacheDir);
   const processed = [];
-  const counts = { summarized: 0, cached: 0, failed: 0 };
+  const counts = { summarized: 0, cached: 0, failed: 0, pending: 0 };
+  let limitHit = false;
 
   for (const [index, item] of items.entries()) {
     const previous = lastGoodBefore(history.get(projectKey(item.area, item.project)), item.day);
@@ -198,9 +199,13 @@ async function runVault({
     if (entry && entry.key === key && entry.summary) {
       counts.cached += 1;
       log(`${label}: cache`);
+    } else if (limitHit) {
+      // Depois do limite de uso, nem tenta: o dia fica pendente para a próxima rodada.
+      entry = { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary: null, error: "limite de uso", limit: true };
+      counts.pending += 1;
     } else {
       const started = Date.now();
-      const { summary, error } = await summarizeProject({
+      const { summary, error, limit } = await summarizeProject({
         area: item.area,
         project: item.project,
         day: item.day,
@@ -208,7 +213,7 @@ async function runVault({
         knownPlaces: previous ? previous.summary.ondeEstaCadaCoisa : [],
         digestText: item.text
       }, { runner: run });
-      entry = { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary, error };
+      entry = { key, day: item.day, area: item.area, project: item.project, sessions: item.sessions, summary, error, limit };
       if (summary) {
         writeJson(cacheFile, entry);
         counts.summarized += 1;
@@ -216,6 +221,10 @@ async function runVault({
         counts.failed += 1;
       }
       log(`${label}: ${summary ? "resumido" : `falhou (${error})`} em ${((Date.now() - started) / 1000).toFixed(1)}s`);
+      if (limit) {
+        limitHit = true;
+        log("Limite de uso do Claude atingido: o resto fica pendente para a próxima rodada.");
+      }
     }
     putEntry(history, entry);
     processed.push(entry);
@@ -232,7 +241,8 @@ async function runVault({
     if (!good.length) continue;
     const latest = good[good.length - 1];
     const lastDay = entries[entries.length - 1].day;
-    const blocks = vault.renderProjectBlocks({ summary: latest.summary, history: entries, sessions: entries.flatMap(e => e.sessions || []), lastDay });
+    const pendingDays = entries.filter(e => !e.summary && e.day > latest.day).map(e => e.day);
+    const blocks = vault.renderProjectBlocks({ summary: latest.summary, summaryDay: latest.day, pendingDays, history: entries, sessions: entries.flatMap(e => e.sessions || []), lastDay });
     write(vault.projectNotePath(latest.area, latest.project), current => vault.setFrontmatter(
       vault.upsertBlocks(current, blocks, { initial: vault.projectTemplate(latest.area, latest.project) }),
       { tipo: "projeto", area: latest.area, projeto: latest.project, "ultima-atividade": lastDay }
@@ -249,13 +259,15 @@ async function runVault({
   const rows = Array.from(history.values())
     .map(entries => {
       const good = entries.filter(e => e.summary);
-      return good.length ? { area: good[0].area, project: good[0].project, lastDay: entries[entries.length - 1].day, state: good[good.length - 1].summary.estadoAtual } : null;
+      if (!good.length) return null;
+      const latest = good[good.length - 1];
+      return { area: latest.area, project: latest.project, lastDay: entries[entries.length - 1].day, summaryDay: latest.day, state: latest.summary.estadoAtual };
     })
     .filter(Boolean);
   write(vault.INDEX_PATH, current => vault.upsertBlocks(current, { indice: vault.renderIndex(rows) }, { initial: vault.indexTemplate() }));
 
   if (!dryRun) vault.pruneBackups(path.join(vaultDir, ".sync-backup"), today);
-  return { ...counts, projectDays: items.length, days: days.length, target };
+  return { ...counts, limitHit, projectDays: items.length, days: days.length, target };
 }
 
 function parseArgs(argv) {
@@ -302,9 +314,10 @@ async function main() {
   }
 
   const result = await runVault({ since, until, dryRun: args.dryRun, vaultDir: args.vaultDir, model: args.model, maxChars: args.maxChars, today, log: line => console.log(line) });
-  console.log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam; ${result.days} diários (${seconds()}s).`);
+  console.log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.days} diários (${seconds()}s).`);
+  if (result.limitHit) console.log("Limite de uso do Claude atingido. Rode de novo depois que ele renovar: o que já foi resumido está no cache.");
   console.log(`${args.dryRun ? "Prévia do vault" : "Vault"} em ${result.target}`);
-  if (result.failed) process.exitCode = 2;
+  if (result.failed || result.pending) process.exitCode = 2;
 }
 
 if (require.main === module) {

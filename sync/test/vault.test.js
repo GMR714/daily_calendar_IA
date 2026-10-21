@@ -89,6 +89,26 @@ test("blocos do projeto: estado inteiro, locais e últimos dias em ordem", () =>
   assert.match(blocks.sessoes, /Menu de pausa/);
 });
 
+test("estado avisa quando há dias mais novos ainda sem resumo", () => {
+  const blocks = renderProjectBlocks({
+    summary: { estadoAtual: "Estado de 18/10.", ondeEstaCadaCoisa: [] },
+    summaryDay: "2026-10-18",
+    pendingDays: ["2026-10-19", "2026-10-20"],
+    history: [],
+    sessions: [],
+    lastDay: "2026-10-20"
+  });
+  assert.match(blocks.estado, /Atualizado com o registro de 18\/10/);
+  assert.match(blocks.estado, /19\/10, 20\/10/);
+  assert.match(blocks.estado, /pode estar desatualizado/);
+});
+
+test("diário marca resumo pendente por limite de uso", () => {
+  const text = renderDiary("2026-10-20", [{ area: "Seazone", project: "olimpo", summary: null, limit: true, error: "You've hit your session limit" }], []);
+  assert.match(text, /resumo pendente: limite de uso do Claude/);
+  assert.doesNotMatch(text, /You've hit/);
+});
+
 test("diário traz feito, mudanças, próximos passos e avulsas", () => {
   const text = renderDiary("2026-10-20", [
     { area: "Pessoais", project: "PokeSurvivors", summary: { feitoNoDia: ["Criou o menu"], mudancas: [{ antes: "Pausa com P", depois: "Pausa com Esc" }], tarefasNovas: [{ titulo: "Testar no celular" }] } },
@@ -110,6 +130,8 @@ test("índice lista projetos por área com o estado em uma linha", () => {
   // Dentro de tabela o "|" do apelido do link precisa de escape, senão quebra a coluna no Obsidian.
   assert.match(text, /\| \[\[Projetos\/Pessoais\/PokeSurvivors\\\|PokeSurvivors\]\] \| 2026-10-20 \| Menu pronto\. \|/);
   assert.ok(text.indexOf("## Pessoais") < text.indexOf("## Seazone"));
+  const pending = renderIndex([{ area: "Seazone", project: "olimpo", lastDay: "2026-10-21", state: "Velho.", summaryDay: "2026-10-15" }]);
+  assert.match(pending, /⚠ resumo de 15\/10: Velho\./);
 });
 
 test("caminho da nota usa área e projeto sem caracteres proibidos", () => {

@@ -1,6 +1,7 @@
 const { spawn } = require("child_process");
 
-// Mudou o prompt ou o formato? Suba a versão: o cache de resumos é invalidado.
+// Subir a versão invalida o cache de resumos e refaz tudo, gastando o limite de uso da
+// assinatura. Ajuste fino de prompt sem mudar o formato não precisa subir.
 const PROMPT_VERSION = 2;
 const LIMITS = { ondeEstaCadaCoisa: 12, feitoNoDia: 6, mudancas: 6, tarefasNovas: 6, tarefasConcluidas: 20 };
 
@@ -47,7 +48,7 @@ function buildPrompt({ area, project, day, previousState, knownPlaces = [], open
     tasks,
     "",
     "Regras:",
-    "- estadoAtual: 3 a 6 frases sobre onde o projeto está no FIM deste dia: o que funciona, o que está pela metade, decisões que valem agora. Substitui o anterior por inteiro; não repita o que deixou de ser verdade.",
+    "- estadoAtual: 3 a 6 frases sobre onde o PROJETO está no fim deste dia: o que funciona, o que está pela metade, decisões que valem agora. Descreve o projeto, não o dia: se o dia não mudou nada, repita o estado anterior. Substitui o anterior por inteiro; não repita o que deixou de ser verdade.",
     "- ondeEstaCadaCoisa: só locais concretos (pastas, repositórios, branches, PRs, arquivos de saída, documentos). Mantenha os já conhecidos que continuam válidos. No máximo 12.",
     "- feitoNoDia: 1 a 6 itens curtos do que foi de fato feito neste dia.",
     "- mudancas: só quando o dia contradiz o estado anterior (decisão trocada, arquivo movido, abordagem abandonada); antes e depois em uma frase cada. Vazio se nada mudou.",
@@ -133,6 +134,11 @@ function normalizeSummary(summary) {
   return out;
 }
 
+function isUsageLimit(message) {
+  return /hit your .*limit|usage limit|rate.?limit|limit.*resets/i.test(String(message || ""));
+}
+
+// Limite de uso não melhora com nova tentativa: devolve na hora para a rodada parar.
 async function summarizeProject(input, { runner, attempts = 2 }) {
   const prompt = buildPrompt(input);
   let error = "sem tentativa";
@@ -140,13 +146,14 @@ async function summarizeProject(input, { runner, attempts = 2 }) {
     try {
       const summary = await runner(prompt);
       const check = validateSummary(summary);
-      if (check.ok) return { summary: normalizeSummary(summary), error: null };
+      if (check.ok) return { summary: normalizeSummary(summary), error: null, limit: false };
       error = `resposta inválida: ${check.errors.join(", ")}`;
     } catch (failure) {
       error = failure.message;
+      if (isUsageLimit(error)) return { summary: null, error, limit: true };
     }
   }
-  return { summary: null, error };
+  return { summary: null, error, limit: false };
 }
 
-module.exports = { PROMPT_VERSION, SUMMARY_SCHEMA, SYSTEM_PROMPT, buildPrompt, claudeArgs, parseClaudeOutput, claudeRunner, validateSummary, summarizeProject };
+module.exports = { PROMPT_VERSION, SUMMARY_SCHEMA, SYSTEM_PROMPT, buildPrompt, claudeArgs, parseClaudeOutput, claudeRunner, validateSummary, isUsageLimit, summarizeProject };

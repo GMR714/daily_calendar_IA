@@ -150,7 +150,7 @@ function indexTemplate() {
   return "# Projetos\n\nÍndice mantido pela rodada diária do app de agenda. Cada projeto tem sua nota em `Projetos/`, e o que foi feito em cada dia está em `Diário/`.\n\n<!-- auto:indice -->\n<!-- /auto:indice -->\n";
 }
 
-function renderProjectBlocks({ summary, history, sessions, lastDay }) {
+function renderProjectBlocks({ summary, history, sessions, lastDay, summaryDay = lastDay, pendingDays = [] }) {
   const places = summary.ondeEstaCadaCoisa || [];
   const recent = history
     .filter(entry => entry.summary && entry.summary.feitoNoDia && entry.summary.feitoNoDia.length)
@@ -160,8 +160,11 @@ function renderProjectBlocks({ summary, history, sessions, lastDay }) {
     .slice()
     .sort((a, b) => b.day.localeCompare(a.day))
     .slice(0, RECENT_SESSIONS);
+  const warning = pendingDays.length
+    ? `\n\n> [!warning] Ainda sem resumo: ${pendingDays.map(shortDay).join(", ")} (entram na próxima rodada). O estado acima pode estar desatualizado.`
+    : "";
   return {
-    estado: `## Estado atual\n${summary.estadoAtual}\n\n_Atualizado com o registro de ${shortDay(lastDay)}._`,
+    estado: `## Estado atual\n${summary.estadoAtual}\n\n_Atualizado com o registro de ${shortDay(summaryDay)}._${warning}`,
     onde: `## Onde está cada coisa\n${places.length ? places.map(p => `- **${p.item}**: \`${p.local}\``).join("\n") : "- (nada registrado ainda)"}`,
     recente: `## Últimos dias\n${recent.map(entry => `- [[Diário/${entry.day}|${shortDay(entry.day)}]]: ${entry.summary.feitoNoDia.map(item => item.replace(/[.;]\s*$/, "")).join("; ")}`).join("\n") || "- (sem registro)"}`,
     sessoes: `## Sessões\n${recentSessions.map(s => `- ${s.day} — ${s.title || "(sem título)"} \`${String(s.sessionId).slice(0, 8)}\``).join("\n")}`
@@ -173,7 +176,9 @@ function renderDiary(day, projects, loose = []) {
   const sorted = projects.slice().sort((a, b) => a.area.localeCompare(b.area) || a.project.localeCompare(b.project));
   for (const p of sorted) {
     const lines = [`## ${p.area} / [[${projectLinkTarget(p.area, p.project)}|${p.project}]]`];
-    if (!p.summary) {
+    if (!p.summary && p.limit) {
+      lines.push("_resumo pendente: limite de uso do Claude atingido; entra na próxima rodada._");
+    } else if (!p.summary) {
       lines.push(`_resumo indisponível (${p.error || "erro"}); veja as sessões do dia._`);
     } else {
       lines.push(...p.summary.feitoNoDia.map(item => `- ${item}`));
@@ -193,7 +198,10 @@ function renderIndex(rows) {
     rows
       .filter(r => r.area === area)
       .sort((a, b) => b.lastDay.localeCompare(a.lastDay))
-      .forEach(r => lines.push(`| [[${projectLinkTarget(r.area, r.project)}\\|${r.project}]] | ${r.lastDay} | ${firstSentence(r.state).replace(/\|/g, "/")} |`));
+      .forEach(r => {
+        const stale = r.summaryDay && r.summaryDay < r.lastDay ? `⚠ resumo de ${shortDay(r.summaryDay)}: ` : "";
+        lines.push(`| [[${projectLinkTarget(r.area, r.project)}\\|${r.project}]] | ${r.lastDay} | ${stale}${firstSentence(r.state).replace(/\|/g, "/")} |`);
+      });
     return lines.join("\n");
   }).join("\n\n");
 }
