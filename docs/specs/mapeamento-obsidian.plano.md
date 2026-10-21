@@ -1,8 +1,8 @@
 ---
 spec: docs/specs/mapeamento-obsidian.md
-status: rascunho
+status: aprovado
 data: 2026-10-21
-aprovado-por:
+aprovado-por: Gabriel, 2026-10-21
 ---
 
 # Plano técnico — mapeamento pro Obsidian + checklist dirigido
