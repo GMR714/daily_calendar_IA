@@ -40,6 +40,15 @@ test("fala do usuário vira evento; meta e subagente são ignorados", () => {
   assert.deepEqual(eventsFromRecord(user([{ type: "text", text: "<system-reminder>a</system-reminder>" }])), []);
 });
 
+test("resumo automático de contexto vira contexto, não fala do usuário", () => {
+  const record = user("This session is being continued from a previous conversation. Summary: PR #3 criado.", { isCompactSummary: true });
+  assert.deepEqual(eventsFromRecord(record).map(e => e.kind), ["context"]);
+  const [digest] = buildDigests([record, user("e agora?")], { config, offsetHours: -3 });
+  const text = renderDigest(digest);
+  assert.match(text, /contexto anterior, não é trabalho deste dia/);
+  assert.doesNotMatch(text, /\*\*Você:\*\* This session/);
+});
+
 test("texto do assistente entra; raciocínio interno não", () => {
   const events = eventsFromRecord(assistant([
     { type: "thinking", thinking: "pensando" },

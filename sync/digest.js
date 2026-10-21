@@ -78,7 +78,9 @@ function eventsFromRecord(record) {
   const content = record.message && record.message.content;
   const events = [];
 
-  if (record.type === "user") {
+  if (record.type === "user" && record.isCompactSummary) {
+    events.push({ kind: "context", text: stripNoise(blockText(content)) });
+  } else if (record.type === "user") {
     if (typeof content === "string") {
       events.push({ kind: "user", text: stripNoise(content) });
     } else if (Array.isArray(content)) {
@@ -187,11 +189,14 @@ function renderDigest(digest, { maxChars = 40000 } = {}) {
   if (trail.length > maxChars / 2) trail = clip(trail, Math.floor(maxChars / 2));
   const top = trail ? `${header}\n\n## Rastro\n${trail}\n\n## Conversa\n` : `${header}\n\n## Conversa\n`;
 
+  const speakers = {
+    user: text => `**Você:** ${redact(clip(text, USER_CHARS))}`,
+    assistant: text => `**Claude:** ${redact(clip(text, ASSISTANT_CHARS))}`,
+    context: text => `_[Resumo automático da conversa até aqui: contexto anterior, não é trabalho deste dia]_ ${redact(clip(text, USER_CHARS))}`
+  };
   const talk = digest.events
-    .filter(event => event.kind === "user" || event.kind === "assistant")
-    .map(event => (event.kind === "user"
-      ? `**Você:** ${redact(clip(event.text, USER_CHARS))}`
-      : `**Claude:** ${redact(clip(event.text, ASSISTANT_CHARS))}`));
+    .filter(event => speakers[event.kind])
+    .map(event => speakers[event.kind](event.text));
 
   const omittedNote = count => `_[${count} mensagens anteriores omitidas]_\n`;
   let budget = maxChars - top.length - omittedNote(talk.length).length;
