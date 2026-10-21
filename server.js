@@ -21,6 +21,7 @@ const publicFiles = {
   "/index.html": "index.html",
   "/styles.css": "styles.css",
   "/agenda-merge.js": "agenda-merge.js",
+  "/checklist.js": "checklist.js",
   "/app.js": "app.js"
 };
 
