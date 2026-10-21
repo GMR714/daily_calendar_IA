@@ -1,0 +1,24 @@
+{
+  "rules": [
+    { "prefix": "C:\\Dev", "area": "Pessoais", "projectFromSubfolder": true },
+    { "prefix": "C:\\Dev\\Dev Seazone", "area": "Seazone", "projectFromSubfolder": true, "rootProject": "Geral" },
+    { "prefix": "C:\\Dev\\Dev Seazone\\wt", "area": "Seazone", "projectFromSubfolder": true },
+    { "prefix": "C:\\Dev\\faculdade", "area": "Faculdade", "projectFromSubfolder": true },
+    { "prefix": "C:\\Dev\\PFC", "area": "Faculdade", "project": "PFC" },
+    { "prefix": "C:\\Dev\\TC", "area": "Lifeshub", "project": "The Connection" },
+    { "prefix": "C:\\Dev\\headsc\\games", "area": "Pessoais", "projectFromSubfolder": true },
+    { "prefix": "C:\\Users\\gabri\\Documents\\New project", "area": "Pessoais", "project": "Agenda" },
+    { "prefix": "C:\\Users\\gabri\\Documents\\Obsidian Vault", "area": "Pessoais", "project": "Obsidian" }
+  ],
+  "aliases": {
+    "Video-editor-broll": "Video editor",
+    "olimpo-*": "olimpo",
+    "setup-com-prova-*": "setup-com-prova",
+    "seazone-skills-*": "seazone-skills",
+    "gitops-seazone-*": "gitops-seazone"
+  },
+  "ignoreCwdPrefixes": [
+    "C:\\Users\\gabri\\AppData\\Local\\Temp"
+  ],
+  "ignoreProjectDirs": []
+}
