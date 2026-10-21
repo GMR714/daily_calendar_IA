@@ -109,6 +109,11 @@ test("diário marca resumo pendente por limite de uso", () => {
   assert.doesNotMatch(text, /You've hit/);
 });
 
+test("diário marca resumo pendente pelo teto da rodada", () => {
+  const text = renderDiary("2026-10-20", [{ area: "Seazone", project: "olimpo", summary: null, capped: true }], []);
+  assert.match(text, /resumo pendente: teto de resumos da rodada atingido; entra na próxima rodada/);
+});
+
 test("diário traz feito, mudanças, próximos passos e avulsas", () => {
   const text = renderDiary("2026-10-20", [
     { area: "Pessoais", project: "PokeSurvivors", summary: { feitoNoDia: ["Criou o menu"], mudancas: [{ antes: "Pausa com P", depois: "Pausa com Esc" }], tarefasNovas: [{ titulo: "Testar no celular" }] } },

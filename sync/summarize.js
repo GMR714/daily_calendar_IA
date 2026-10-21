@@ -52,7 +52,7 @@ function buildPrompt({ area, project, day, previousState, knownPlaces = [], open
     "- ondeEstaCadaCoisa: só locais concretos (pastas, repositórios, branches, PRs, arquivos de saída, documentos). Mantenha os já conhecidos que continuam válidos. No máximo 12.",
     "- feitoNoDia: 1 a 6 itens curtos do que foi de fato feito neste dia.",
     "- mudancas: só quando o dia contradiz o estado anterior (decisão trocada, arquivo movido, abordagem abandonada); antes e depois em uma frase cada. Vazio se nada mudou.",
-    "- tarefasNovas: próximos passos concretos que ficaram pendentes no fim do dia, cada um pequeno (até umas 2 horas). titulo no imperativo; contexto em 2 ou 3 frases (onde parou, por quê, onde estão os arquivos). Não inclua o que já foi feito. No máximo 6. prazo só se o registro citar uma data (AAAA-MM-DD); senão null.",
+    "- tarefasNovas: próximos passos concretos que ficaram pendentes no fim do dia, cada um pequeno (até umas 2 horas). titulo no imperativo; contexto em 2 ou 3 frases (onde parou, por quê, onde estão os arquivos). Não inclua o que já foi feito nem o que já está nas tarefas abertas. No máximo 6. prazo só se o registro citar uma data (AAAA-MM-DD); senão null.",
     "- tarefasConcluidas: ids das tarefas abertas que o registro mostra como feitas, com a evidência em uma frase.",
     "- Trechos marcados como resumo automático da conversa são contexto de dias anteriores: use para entender, mas não conte como feito neste dia nem como mudança.",
     "",

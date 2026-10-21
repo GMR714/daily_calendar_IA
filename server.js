@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { mergeById } = require("./agenda-merge");
 
 const PORT = Number(process.env.PORT || 8787);
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "agenda-inteligente";
@@ -19,6 +20,8 @@ const publicFiles = {
   "/": "index.html",
   "/index.html": "index.html",
   "/styles.css": "styles.css",
+  "/agenda-merge.js": "agenda-merge.js",
+  "/checklist.js": "checklist.js",
   "/app.js": "app.js"
 };
 
@@ -69,11 +72,13 @@ const server = http.createServer(async (req, res) => {
   return send(res, 404, "Not found");
 });
 
-server.listen(PORT, () => {
-  console.log(`Agenda Inteligente rodando em http://localhost:${PORT}`);
-  if (TELEGRAM_BOT_TOKEN && TELEGRAM_POLLING) startTelegramPolling();
-  if (!TELEGRAM_BOT_TOKEN) console.log("Telegram desativado: defina TELEGRAM_BOT_TOKEN para iniciar o bot.");
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Agenda Inteligente rodando em http://localhost:${PORT}`);
+    if (TELEGRAM_BOT_TOKEN && TELEGRAM_POLLING) startTelegramPolling();
+    if (!TELEGRAM_BOT_TOKEN) console.log("Telegram desativado: defina TELEGRAM_BOT_TOKEN para iniciar o bot.");
+  });
+}
 
 function serveFile(res, fileName) {
   const filePath = path.join(__dirname, fileName);
@@ -85,16 +90,21 @@ function serveFile(res, fileName) {
   });
 }
 
-function loadAgendaData() {
+// projects e opens vêm da rodada diária (sync/) e do checklist; o navegador não os
+// manda, então a mescla nunca pode apagá-los.
+function loadAgendaData(file = DATA_FILE) {
+  const empty = { entries: [], reports: [], projects: [], opens: [] };
   try {
-    if (!fs.existsSync(DATA_FILE)) return { entries: [], reports: [] };
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    if (!fs.existsSync(file)) return empty;
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
     return {
       entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-      reports: Array.isArray(parsed.reports) ? parsed.reports : []
+      reports: Array.isArray(parsed.reports) ? parsed.reports : [],
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      opens: Array.isArray(parsed.opens) ? parsed.opens : []
     };
   } catch {
-    return { entries: [], reports: [] };
+    return empty;
   }
 }
 
@@ -103,20 +113,12 @@ function saveAgendaData(data) {
 }
 
 function mergeAgendaData(current, incoming) {
-  const entries = mergeById(current.entries, incoming.entries);
-  const reports = mergeById(current.reports, incoming.reports);
-  return { entries, reports };
-}
-
-function mergeById(current = [], incoming = []) {
-  const map = new Map();
-  current.forEach(item => {
-    if (item?.id) map.set(item.id, item);
-  });
-  (Array.isArray(incoming) ? incoming : []).forEach(item => {
-    if (item?.id) map.set(item.id, { ...map.get(item.id), ...item });
-  });
-  return Array.from(map.values());
+  return {
+    entries: mergeById(current.entries, incoming.entries),
+    reports: mergeById(current.reports, incoming.reports),
+    projects: mergeById(current.projects, incoming.projects),
+    opens: Array.from(new Set([...(current.opens || []), ...(Array.isArray(incoming.opens) ? incoming.opens : [])])).sort()
+  };
 }
 
 function saveInterpretation(result, source) {
@@ -557,3 +559,5 @@ function send(res, status, body, type = "text/plain;charset=utf-8") {
   });
   res.end(body);
 }
+
+module.exports = { loadAgendaData, mergeAgendaData };

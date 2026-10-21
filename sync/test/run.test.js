@@ -140,3 +140,89 @@ test("ao bater no limite de uso, para de chamar a IA e deixa o resto pendente", 
   assert.equal(result.limitHit, true);
   assert.match(fs.readFileSync(path.join(root, "vault", "Diário", "2026-10-21.md"), "utf8"), /resumo pendente: limite de uso do Claude/);
 });
+
+test("rodada leva tarefas abertas à IA, fecha a feita e sugere a nova na agenda", async () => {
+  const { root, projects } = makeProjectsDir();
+  const agendaFile = path.join(root, "agenda-data.json");
+  const manual = { id: "manual-1", type: "routine", text: "Academia", duration: 60, priority: 2 };
+  const open = { id: "sync-aberta", type: "task", source: "sync", status: "confirmada", text: "Criar o menu de pausa", projectId: "pessoais/pokesurvivors", fingerprint: "pessoais/pokesurvivors::criar-o-menu-de-pausa", updatedAt: "2026-10-19T06:00:00.000Z" };
+  fs.writeFileSync(agendaFile, JSON.stringify({ entries: [manual, open], reports: [] }));
+
+  const prompts = [];
+  const runner = async prompt => {
+    prompts.push(prompt);
+    return { ...fakeSummary("2026-10-20"), tarefasConcluidas: [{ id: "sync-aberta", evidencia: "Menu criado." }] };
+  };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), agendaFile, config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-21" });
+
+  assert.match(prompts[0], /\[sync-aberta\] Criar o menu de pausa/);
+  assert.equal(result.tasksAdded, 1);
+  assert.equal(result.tasksClosed, 1);
+  const agenda = JSON.parse(fs.readFileSync(agendaFile, "utf8"));
+  assert.deepEqual(agenda.entries.find(e => e.id === "manual-1"), manual);
+  assert.equal(agenda.entries.find(e => e.id === "sync-aberta").status, "feita");
+  assert.equal(agenda.entries.find(e => e.status === "sugerida").text, "Testar o menu no celular");
+  assert.equal(agenda.projects[0].id, "pessoais/pokesurvivors");
+});
+
+test("dry-run grava a agenda só na prévia", async () => {
+  const { root, projects } = makeProjectsDir();
+  const agendaFile = path.join(root, "agenda-data.json");
+  const agendaPreviewFile = path.join(root, "preview", "agenda-data.json");
+  const original = JSON.stringify({ entries: [{ id: "manual-1", text: "Academia" }], reports: [] });
+  fs.writeFileSync(agendaFile, original);
+  await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), previewDir: path.join(root, "preview", "vault"), dataDir: path.join(root, "data"), agendaFile, agendaPreviewFile, config, since: "2026-09-01", until: "2026-10-21", runner: async () => fakeSummary("x"), dryRun: true, today: "2026-10-21" });
+  assert.equal(fs.readFileSync(agendaFile, "utf8"), original);
+  const preview = JSON.parse(fs.readFileSync(agendaPreviewFile, "utf8"));
+  assert.equal(preview.entries.length, 2);
+});
+
+function addPokeDay(projects, sessionId, iso, text) {
+  fs.writeFileSync(path.join(projects, "C--Dev-PokeSurvivors", `${sessionId}.jsonl`), jsonl([
+    { type: "user", sessionId, timestamp: iso, cwd: "C:\\Dev\\PokeSurvivors", message: { content: text } }
+  ]));
+}
+
+test("teto da rodada: termina o dia em curso, não começa outro e deixa o resto pendente", async () => {
+  const { root, projects } = makeProjectsDir();
+  addPokeDay(projects, "s3", "2026-10-21T13:00:00.000Z", "Agora o placar");
+  let calls = 0;
+  const runner = async () => { calls += 1; return fakeSummary("x"); };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-22", maxSummaries: 1 });
+  assert.equal(calls, 1);
+  assert.equal(result.summarized, 1);
+  assert.equal(result.pending, 1);
+  assert.equal(result.limitHit, false);
+  assert.deepEqual(result.pendingDays, ["2026-10-21"]);
+  assert.deepEqual(result.failedDays, []);
+  assert.match(fs.readFileSync(path.join(root, "vault", "Diário", "2026-10-21.md"), "utf8"), /resumo pendente: teto de resumos da rodada/);
+});
+
+test("rodada separa dias que falharam dos que ficaram pendentes", async () => {
+  const { root, projects } = makeProjectsDir();
+  addPokeDay(projects, "s3", "2026-10-21T13:00:00.000Z", "Agora o placar");
+  let calls = 0;
+  const runner = async () => {
+    calls += 1;
+    if (calls <= 2) return { estadoAtual: "sem o resto" };
+    throw new Error("claude: You've hit your session limit · resets 4pm");
+  };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-22" });
+  assert.deepEqual(result.failedDays, ["2026-10-20"]);
+  assert.deepEqual(result.pendingDays, ["2026-10-21"]);
+});
+
+test("o que o app grava na agenda durante a rodada não se perde", async () => {
+  const { root, projects } = makeProjectsDir();
+  const agendaFile = path.join(root, "agenda-data.json");
+  fs.writeFileSync(agendaFile, JSON.stringify({ entries: [], reports: [] }));
+  const fromApp = { id: "manual-durante", type: "task", text: "Criada no app no meio da rodada", updatedAt: "2026-10-21T06:01:00.000Z" };
+  const runner = async () => {
+    fs.writeFileSync(agendaFile, JSON.stringify({ entries: [fromApp], reports: [] }));
+    return fakeSummary("2026-10-20");
+  };
+  await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), agendaFile, config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-21" });
+  const agenda = JSON.parse(fs.readFileSync(agendaFile, "utf8"));
+  assert.deepEqual(agenda.entries.find(e => e.id === "manual-durante"), fromApp);
+  assert.ok(agenda.entries.some(e => e.status === "sugerida"));
+});
