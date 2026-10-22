@@ -1,0 +1,24 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const env = path.join(__dirname, "../.env");
+if (fs.existsSync(env)) process.loadEnvFile(env);
+process.env.TZ ||= "America/Sao_Paulo";
+const { interpret } = require("../ollama");
+const Planner = require("../planner-core");
+(async () => {
+  const current = Planner.normalize({ entries: [{ id: "gym-test", text: "Academia", type: "routine", time: "08:00", timeLocked: true, duration: 60, preferredDays: [0,2,4] }] });
+  const result = await interpret({ mode: "auto", intent: "message", message: "Corrija minha academia existente para das 6 as 7 da noite, nos mesmos dias. Tenho uma prova dificil de logica de programacao em 22/10/2026, as 14h, com duracao de duas horas. Preciso de pelo menos 12 horas de preparacao, incluindo teoria, exercicios e simulados antes da prova. Posso estudar 4 horas por semana. Crie uma meta com criterios claros para essa preparacao, preserve a data da prova e nao duplique a academia.", context: { ...current, recentReports: [] } });
+  if (result.mode !== "ai") throw new Error(result.message);
+  const applied = Planner.applyInterpretation(current, result);
+  const gym = applied.data.entries.find(entry => entry.id === "gym-test");
+  assert.equal(gym.time, "18:00"); assert.equal(gym.duration, 60);
+  assert.equal(applied.data.entries.filter(entry => /academia/i.test(entry.text)).length, 1);
+  const exam = applied.data.entries.find(entry => entry.type === "event");
+  assert.equal(exam.date, "2026-10-22"); assert.equal(exam.time, "14:00");
+  assert.ok(applied.data.goals.length >= 1);
+  const prep = applied.data.entries.filter(entry => entry.type === "task");
+  assert.ok(prep.reduce((sum, entry) => sum + entry.duration, 0) >= 720);
+  assert.ok(prep.every(entry => entry.instructions.length && entry.completionCriteria));
+  console.log(JSON.stringify({ model: result.model, goals: applied.data.goals.length, steps: prep.length, preparationMinutes: prep.reduce((sum, e) => sum + e.duration, 0), examDate: exam.date, gymTime: gym.time, changes: applied.changes.length }));
+})().catch(error => { console.error(error.message); process.exitCode = 1; });

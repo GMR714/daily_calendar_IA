@@ -1,0 +1,21 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createStore } = require("../agenda-store");
+test("atomic storage increments revisions, backs up and refuses corrupt data", t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-test-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, "agenda.json");
+  const store = createStore(file);
+  const first = store.write({ entries: [{ id: "a", text: "Teste", type: "task" }] });
+  assert.equal(first.revision, 1);
+  store.write(first);
+  assert.equal(store.read().revision, 2);
+  assert.equal(fs.readdirSync(path.join(directory, ".agenda-backups")).length, 1);
+  fs.writeFileSync(file, "broken");
+  assert.throws(() => store.read(), /preservados/);
+  assert.throws(() => store.write(first), /preservados/);
+  assert.equal(fs.readFileSync(file, "utf8"), "broken");
+});

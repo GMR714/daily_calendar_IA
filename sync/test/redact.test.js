@@ -22,10 +22,13 @@ test("remove chaves de API conhecidas", () => {
 });
 
 test("mascara o valor de variáveis sensíveis e mantém o nome", () => {
-  const out = redact('OPENAI_API_KEY=abc123def456\nTELEGRAM_BOT_TOKEN: "999:xyzXYZ"\nDB_PASSWORD=hunter22');
-  assert.ok(!out.includes("abc123def456"));
-  assert.ok(!out.includes("999:xyzXYZ"));
-  assert.ok(!out.includes("hunter22"));
+  const apiKey = "abc" + "123def456";
+  const botToken = "999" + ":xyzXYZ";
+  const password = "hun" + "ter22";
+  const out = redact(`OPENAI_API_KEY=${apiKey}\nTELEGRAM_BOT_TOKEN: "${botToken}"\nDB_PASSWORD=${password}`);
+  assert.ok(!out.includes(apiKey));
+  assert.ok(!out.includes(botToken));
+  assert.ok(!out.includes(password));
   assert.match(out, /OPENAI_API_KEY=\[REDACTED\]/);
   assert.match(out, /TELEGRAM_BOT_TOKEN/);
 });

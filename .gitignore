@@ -30,3 +30,8 @@ dist/
 build/
 coverage/
 .cache/
+
+# Private agenda backups and Telegram cursor
+.agenda-backups/
+agenda-data.json.*
+*.telegram.json*
