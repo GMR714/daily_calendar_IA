@@ -26,6 +26,29 @@ function fingerprint(pid, title) {
   return `${pid}::${slug(title)}`;
 }
 
+// Palavras que não mudam a tarefa: "Mergear o setup-com-prova#59" é "Mergear setup-com-prova#59".
+const STOPWORDS = new Set(["a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "e", "em", "no", "na", "nos", "nas", "ao", "aos", "para", "pra", "por", "pelo", "pela", "com", "que", "se", "apos", "sobre", "ate"]);
+
+function titleWords(title) {
+  return new Set(String(title)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9#_.-]+/)
+    .map(word => word.replace(/^[.-]+|[.-]+$/g, ""))
+    .filter(word => word && !STOPWORDS.has(word)));
+}
+
+// Mesma tarefa com outras palavras: a menor cabe quase toda na maior, as duas têm tamanho
+// parecido e citam os mesmos identificadores (PR, commit, arquivo): olimpo#1822 não é olimpo#1824.
+function sameTask(a, b) {
+  const [small, large] = [titleWords(a), titleWords(b)].sort((x, y) => x.size - y.size);
+  const ids = words => [...words].filter(word => /\d/.test(word)).sort().join(" ");
+  if (ids(small) !== ids(large)) return false;
+  const shared = [...small].filter(word => large.has(word)).length;
+  return shared >= 2 && shared / small.size >= 0.8 && small.size / large.size >= 0.6;
+}
+
 function taskId(print) {
   return `sync-${crypto.createHash("sha1").update(print).digest("hex").slice(0, 12)}`;
 }
@@ -105,6 +128,7 @@ function applySummaries(data, processed, { now }) {
     for (const task of item.summary.tarefasNovas || []) {
       const print = fingerprint(pid, task.titulo);
       if (entries.some(entry => entry.fingerprint === print)) continue;
+      if (entries.some(entry => isOpenSyncTask(entry, pid) && sameTask(entry.text, task.titulo))) continue;
       entries.push({
         id: taskId(print),
         type: "task",
