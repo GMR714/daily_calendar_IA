@@ -77,7 +77,9 @@ flowchart LR
 7. **App** — no `agenda-data.json` (caminho configurável):
    - tarefa nova: `type: task`, `source: sync`, `status: sugerida`, `projectId`, `context`,
      `date` (prazo, se houver), `fingerprint` (projeto + título normalizado), `createdAt`,
-     `updatedAt`; não recria fingerprint já `descartada`, `feita` ou existente;
+     `updatedAt`; não recria fingerprint já `descartada`, `feita` ou existente, nem tarefa
+     que já está aberta no mesmo projeto com outras palavras (mesmos identificadores, como
+     `olimpo#1849`, e quase as mesmas palavras, sem contar artigos e preposições);
    - tarefa concluída: `status: feita`, `doneAuto: true`, `doneBy {sessão, evidência}`;
    - projeto: `projects[{id, nome, area, prioridade, goalId, prazo, ultimaAtividade, nota}]`.
 

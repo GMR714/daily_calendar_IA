@@ -103,6 +103,55 @@ test("tarefas abertas do projeto para mandar à IA", () => {
   assert.deepEqual(openTasksFor(data, "pessoais/x"), [{ id: "a", titulo: "A" }, { id: "b", titulo: "B" }]);
 });
 
+function suggestions(project, titles) {
+  return entry("2026-10-21", project, { tarefasNovas: titles.map(titulo => ({ titulo, contexto: "c", prazo: null })) });
+}
+
+// Pares reais: o dia 21 resumido duas vezes recriou estas tarefas com outras palavras.
+test("não sugere de novo tarefa aberta do projeto escrita com outras palavras", () => {
+  const open = [
+    "Corrigir a regra do modo de permissão e o Git ausente nas três cópias",
+    "Reenviar o PR seazone-skills#634 ao Alfred após a correção",
+    "Pedir o merge do olimpo#1849 ao time do Olimpo",
+    "Mergear o setup-com-prova#59"
+  ];
+  const base = applySummaries({ entries: [] }, [suggestions("seazone-skills", open)], { now: NOW }).data;
+  const { data, added } = applySummaries(base, [suggestions("seazone-skills", [
+    "Corrigir validação do modo de permissão nas três cópias",
+    "Reenviar PR seazone-skills#634 ao Alfred",
+    "Pedir merge do olimpo#1849 ao time do Olimpo",
+    "Mergear setup-com-prova#59",
+    "Testar correção do modo de permissão"
+  ])], { now: NOW });
+  assert.equal(added, 1);
+  assert.ok(data.entries.some(e => e.text === "Testar correção do modo de permissão"));
+});
+
+test("tarefa parecida com outro PR, outra ação ou bem mais específica continua entrando", () => {
+  const base = applySummaries({ entries: [] }, [suggestions("olimpo", [
+    "Revisar e mesclar o olimpo#1822 (Hub como beta)",
+    "Revisar o PR",
+    "Corrigir a regra do modo de permissão e o Git ausente nas três cópias"
+  ])], { now: NOW }).data;
+  const titles = [
+    "Revisar e mesclar o olimpo#1824 do Xande",
+    "Revisar o PR do Xande sobre a cota do lab",
+    "Testar correção do modo de permissão",
+    "Mesclar olimpo#1854, setup-com-prova#62 e seazone-skills#634, nesta ordem"
+  ];
+  assert.equal(applySummaries(base, [suggestions("olimpo", titles)], { now: NOW }).added, titles.length);
+});
+
+test("a mesma tarefa em outro projeto continua entrando", () => {
+  const base = applySummaries({ entries: [] }, [suggestions("seazone-skills", ["Mergear o setup-com-prova#59"])], { now: NOW }).data;
+  assert.equal(applySummaries(base, [suggestions("setup-com-prova", ["Mergear setup-com-prova#59"])], { now: NOW }).added, 1);
+});
+
+test("duas sugestões iguais no mesmo resumo viram uma só", () => {
+  const { added } = applySummaries({ entries: [] }, [suggestions("olimpo", ["Pedir o merge do olimpo#1849 ao time", "Pedir merge do olimpo#1849 ao time"])], { now: NOW });
+  assert.equal(added, 1);
+});
+
 test("prazo fora do formato AAAA-MM-DD vira tarefa sem prazo", () => {
   const { data } = applySummaries({ entries: [] }, [entry("2026-10-20", "PokeSurvivors", { tarefasNovas: [
     { titulo: "Prazo bom", contexto: "c", prazo: "2026-10-25" },
