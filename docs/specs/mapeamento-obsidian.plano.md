@@ -150,6 +150,32 @@ Pronto quando: duas manhãs seguidas o checklist aparece atualizado sem você ro
 - **Qualidade das sugestões**: a métrica de confirmadas × descartadas mostra na primeira
   semana se o prompt precisa de ajuste.
 
+## Porte para a versão local do app (F4b)
+
+F3 e F4 foram feitas sobre a versão do app que estava no GitHub. O app em uso é a versão de
+setembro, que entrou na `main` no #7. Ela usa `planner-core.js`, `agenda-store.js` com
+`revision`, mescla de 3 vias e a UI de `product-ui.js`. O porte leva o mesmo comportamento
+pra ela:
+
+- **Planejador** (`planner-core.js`): `schedule` ignora `source: "sync"`, então as tarefas da
+  rodada não entram na semana nem no overlay. `normalize` e `merge` passam a cuidar de
+  `projects` (3 vias por id, como as entradas) e de `opens` (união).
+- **Servidor** (`server-runtime.js`): serve `checklist.js`. O contexto mandado pra IA (app e
+  Telegram) fica sem as tarefas da rodada.
+- **Rodada** (`sync/agenda.js`): só grava prazo `AAAA-MM-DD` válido, senão o `validate` do
+  app recusaria toda gravação. Ao salvar, incrementa o `revision` e atualiza o `updatedAt`;
+  sem isso o navegador não percebe a mudança.
+- **Tela**: o painel "O que fazer agora" fica acima do calendário, com os 3 primeiros projetos
+  abertos e o resto em "Mais N projetos". Lista de tarefas, prazos e contagens escondem as
+  tarefas da rodada. Os cliques do checklist sincronizam sem mexer no `planningAt` (não
+  replanejam o dia). `dataSnapshot` passa a mandar `projects` e `opens`.
+- **`checklist.js`**: a prioridade da meta vem de `goals`, não mais de entradas `type: goal`.
+- Sai o `agenda-merge.js`: a mescla de 3 vias da versão local substitui o "vence o mais novo".
+
+Testes: `schedule` sem as tarefas da rodada; mescla de `projects` e `opens`; contexto da IA
+sem elas; prazo inválido descartado; `revision` incrementado pela rodada. Conferência no
+navegador.
+
 ## Fora deste plano
 
 VM, Google Calendar, WhatsApp, mudanças no `seanotes_sync.py` e nas notas soltas do vault.

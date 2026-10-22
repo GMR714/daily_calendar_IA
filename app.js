@@ -18,7 +18,9 @@ const calendarCategoryDefinitions = {
   pomodoroFocus: 25,
   pomodoroBreak: 5
 };
-const defaultState = { goals: [], entries: [], reports: [], plan: [], planWarnings: [], alarmFired: [], preferences: defaultPreferences };
+const defaultState = { goals: [], entries: [], reports: [], projects: [], opens: [], plan: [], planWarnings: [], alarmFired: [], preferences: defaultPreferences };
+const OBSIDIAN_VAULT = "Obsidian Vault";
+const CHECKLIST_OPEN_GROUPS = 3;
 let speechRecognition = null;
 let alarmInterval = null;
 let alarmsEnabled = false;
@@ -39,6 +41,8 @@ let aiBusy = false;
 let pendingProposal = null;
 let aiProvider = localStorage.getItem(STORAGE_KEY + "-ai-provider") || "";
 let allScheduledBlocks = [];
+let checklistMoreOpen = false;
+const checklistExpanded = new Set();
 const state = loadState();
 
 const el = {
@@ -60,6 +64,8 @@ const el = {
   exportIcs: document.querySelector("#exportIcs"),
   clearData: document.querySelector("#clearData"),
   weekGrid: document.querySelector("#weekGrid"),
+  checklist: document.querySelector("#checklist"),
+  checklistMetrics: document.querySelector("#checklistMetrics"),
   planWarnings: document.querySelector("#planWarnings"),
   goalLegend: document.querySelector("#goalLegend"),
   entriesList: document.querySelector("#entriesList"),
@@ -164,6 +170,12 @@ el.modeButtons.forEach(button => {
 el.quickExamples.forEach(button => {
   on(button, "click", () => useQuickExample(button));
 });
+on(el.checklist, "click", handleChecklistClick);
+on(el.checklist, "change", handleChecklistChange);
+// "toggle" não borbulha: escuta na captura para lembrar se "Mais projetos" está aberto.
+el.checklist?.addEventListener("toggle", event => {
+  if (event.target.classList.contains("more-projects")) checklistMoreOpen = event.target.open;
+}, true);
 hydratePreferenceFields();
 el.quickMessage.value = localStorage.getItem(STORAGE_KEY + "-draft") || "";
 autoScheduleBacklog();
@@ -171,6 +183,7 @@ generatePlan();
 updateInterpretationPreview();
 tickAlarms();
 alarmInterval = window.setInterval(tickAlarms, 1000);
+recordTodayOpen();
 syncFromServer();
 window.setInterval(syncFromServer, 15000);
 
@@ -234,6 +247,7 @@ async function syncFromServer() {
     serverSyncReady = true;
     if (syncDirty && syncBase) return await syncToServer();
     acceptServerState(data);
+    recordTodayOpen();
     syncStatus("Agenda sincronizada", false);
   } catch (error) { syncStatus("Sem sincronizacao: " + error.message + " Alteracoes locais preservadas.", true); }
 }
@@ -780,9 +794,10 @@ function render() {
       : calendarView === "day" ? weekStart.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "short" }) : `${formatDate(weekStart)} a ${formatDate(addDays(weekStart, 6))}`;
   }
   if (el.statGoals) el.statGoals.textContent = state.goals.filter(goal => goal.status === "active").length;
-  if (el.statItems) el.statItems.textContent = state.entries.filter(isEntryActive).length;
+  if (el.statItems) el.statItems.textContent = agendaEntries().filter(isEntryActive).length;
   if (el.statReports) el.statReports.textContent = state.reports.length;
   if (el.statFocus) el.statFocus.textContent = formatFocusHours(state.plan);
+  renderChecklist();
   renderCalendarFilters();
   if (calendarView === "month") renderMonth(monthCursor);
   else renderWeek(weekStart);
@@ -919,6 +934,145 @@ function visualStyleForGoal(goalId) {
   return "--goal-color:" + color + ";--goal-bg:" + background + ";";
 }
 
+// Tarefas da rodada diaria ficam so no checklist: fora das listas, prazos e contagens.
+function agendaEntries() { return state.entries.filter(entry => !Planner.isSyncTask(entry)); }
+
+function todayKey() { return Checklist.localDay(new Date().toISOString()); }
+
+function formatDay(day) { return `${day.slice(8, 10)}/${day.slice(5, 7)}`; }
+
+function obsidianLink(note) { return `obsidian://open?vault=${encodeURIComponent(OBSIDIAN_VAULT)}&file=${encodeURIComponent(note)}`; }
+
+function recordTodayOpen() {
+  const opens = Checklist.recordOpen(state.opens || [], todayKey());
+  if (opens.length === (state.opens || []).length) return;
+  state.opens = opens;
+  saveChecklistChange();
+}
+
+// Sincroniza sem mexer no planningAt: decidir uma tarefa do checklist nao replaneja o dia.
+function saveChecklistChange() {
+  syncDirty = true;
+  saveLocalSnapshot();
+  syncToServer();
+  renderChecklist();
+}
+
+function renderChecklist() {
+  if (!el.checklist) return;
+  const today = todayKey();
+  renderChecklistMetrics(today);
+  const { groups, paused } = Checklist.buildChecklist({ entries: state.entries, projects: state.projects || [], goals: state.goals, today });
+  if (!groups.length && !paused.length) {
+    el.checklist.innerHTML = `<p class="muted">Nenhuma tarefa aberta. A rodada diaria traz as proximas a partir das suas sessoes.</p>`;
+    return;
+  }
+  const first = groups.slice(0, CHECKLIST_OPEN_GROUPS).map(renderProjectGroup).join("");
+  const rest = groups.slice(CHECKLIST_OPEN_GROUPS);
+  const more = rest.length
+    ? `<details class="more-projects"${checklistMoreOpen ? " open" : ""}><summary>Mais ${rest.length} ${rest.length === 1 ? "projeto" : "projetos"}: ${escapeHtml(rest.map(group => group.project.name).join(", "))}</summary>${rest.map(renderProjectGroup).join("")}</details>`
+    : "";
+  el.checklist.innerHTML = first + more + (paused.length ? renderPausedProjects(paused) : "");
+}
+
+function renderChecklistMetrics(today) {
+  if (!el.checklistMetrics) return;
+  const metrics = Checklist.checklistMetrics({ entries: state.entries, opens: state.opens || [], today });
+  const parts = [`Aberto em ${metrics.openDays} de 7 dias`, `${metrics.manualTasks} ${metrics.manualTasks === 1 ? "tarefa criada" : "tarefas criadas"} a mao`];
+  if (metrics.acceptance !== null) parts.push(`${Math.round(metrics.acceptance * 100)}% das sugestoes aceitas (${metrics.confirmed} de ${metrics.confirmed + metrics.dismissed})`);
+  el.checklistMetrics.textContent = parts.join(" · ");
+}
+
+function renderProjectGroup(group) {
+  const { project } = group;
+  const idle = group.idleDays === null ? "" : group.idleDays <= 0 ? "mexido hoje" : `parado ha ${group.idleDays} ${group.idleDays === 1 ? "dia" : "dias"}`;
+  const facts = [idle, group.deadline ? `prazo ${formatDay(group.deadline)}` : "", project.note ? `<a href="${escapeHtml(obsidianLink(project.note))}">nota no Obsidian</a>` : ""].filter(Boolean).join(" · ");
+  const priority = Number(project.priority || 2);
+  const priorityOptions = [[3, "Alta"], [2, "Media"], [1, "Baixa"]].map(([value, label]) => `<option value="${value}"${priority === value ? " selected" : ""}>${label}</option>`).join("");
+  const goalOptions = state.goals.filter(goal => goal.status !== "completed")
+    .map(goal => `<option value="${escapeHtml(goal.id)}"${project.goalId === goal.id ? " selected" : ""}>${escapeHtml(String(goal.title || ""))}</option>`).join("");
+  // So a proxima tarefa de cada projeto fica a vista; o resto abre sob demanda.
+  const expanded = checklistExpanded.has(project.id);
+  const hidden = group.tasks.length - 1;
+  const toggle = hidden > 0 ? `<button type="button" class="checklist-more-tasks" data-project-action="expand">${expanded ? "Mostrar so a proxima" : `+${hidden} ${hidden === 1 ? "tarefa" : "tarefas"}`}</button>` : "";
+  return `
+    <article class="project-group" data-project-id="${escapeHtml(project.id)}">
+      <header class="project-head">
+        <div class="project-title">
+          <strong>${escapeHtml(String(project.name))}</strong>
+          <span class="tag">${escapeHtml(String(project.area))}</span>
+          ${group.isNew ? `<span class="tag tag-new">novo: defina prioridade e meta</span>` : ""}
+          <small>${facts}</small>
+        </div>
+        <div class="project-controls">
+          <label>Prioridade<select data-field="priority">${priorityOptions}</select></label>
+          <label>Meta<select data-field="goalId"><option value="">Sem meta</option>${goalOptions}</select></label>
+          <label>Prazo<input type="date" data-field="deadline" value="${escapeHtml(project.deadline || "")}" /></label>
+          <button type="button" data-project-action="pause">Pausar</button>
+        </div>
+      </header>
+      <ol class="checklist-tasks">${(expanded ? group.tasks : group.tasks.slice(0, 1)).map(renderChecklistTask).join("")}</ol>
+      ${toggle}
+      ${group.doneToday.length ? `<ul class="done-today">${group.doneToday.map(renderDoneToday).join("")}</ul>` : ""}
+    </article>`;
+}
+
+function renderChecklistTask(task) {
+  const suggested = task.status === "sugerida";
+  return `
+    <li class="checklist-task${suggested ? " suggested" : ""}" data-task-id="${escapeHtml(task.id)}">
+      <div class="checklist-task-main">
+        <strong>${escapeHtml(String(task.text))}</strong>
+        ${suggested ? `<span class="tag">sugerida</span>` : ""}
+        ${task.date ? `<span class="tag tag-due">ate ${formatDay(task.date)}</span>` : ""}
+        ${task.context ? `<p>${escapeHtml(String(task.context))}</p>` : ""}
+      </div>
+      <div class="checklist-task-actions">
+        ${suggested ? `<button type="button" data-action="confirm">Confirmar</button>` : ""}
+        <button type="button" data-action="done">Feito</button>
+        <button type="button" data-action="dismiss" class="danger">Descartar</button>
+      </div>
+    </li>`;
+}
+
+function renderDoneToday(task) {
+  const by = task.doneBy ? ` pela sessao de ${formatDay(task.doneBy.day)}${task.doneBy.evidence ? `: ${escapeHtml(String(task.doneBy.evidence))}` : ""}` : "";
+  return `<li data-task-id="${escapeHtml(task.id)}"><span>Feita: <strong>${escapeHtml(String(task.text))}</strong>, concluida${by}</span><button type="button" data-action="undo">Desfazer</button></li>`;
+}
+
+function renderPausedProjects(paused) {
+  const rows = paused.map(group => `<div class="paused-row" data-project-id="${escapeHtml(group.project.id)}"><span>${escapeHtml(String(group.project.name))} <small>${group.tasks.length} ${group.tasks.length === 1 ? "tarefa" : "tarefas"}</small></span><button type="button" data-project-action="resume">Retomar</button></div>`).join("");
+  return `<details class="paused-projects"><summary>${paused.length} ${paused.length === 1 ? "projeto pausado" : "projetos pausados"}</summary>${rows}</details>`;
+}
+
+function handleChecklistClick(event) {
+  const button = event.target.closest("button");
+  if (!button) return;
+  const now = new Date().toISOString();
+  const taskId = button.closest("[data-task-id]")?.dataset.taskId;
+  const projectId = button.closest("[data-project-id]")?.dataset.projectId;
+  if (button.dataset.projectAction === "expand") {
+    if (!checklistExpanded.delete(projectId)) checklistExpanded.add(projectId);
+    return renderChecklist();
+  }
+  if (button.dataset.action && taskId) state.entries = state.entries.map(entry => entry.id === taskId ? Checklist.applyTaskAction(entry, button.dataset.action, now) : entry);
+  else if (button.dataset.projectAction && projectId) updateProject(projectId, { paused: button.dataset.projectAction === "pause" }, now);
+  else return;
+  saveChecklistChange();
+}
+
+function handleChecklistChange(event) {
+  const field = event.target.dataset.field;
+  const projectId = event.target.closest("[data-project-id]")?.dataset.projectId;
+  if (!field || !projectId) return;
+  updateProject(projectId, { [field]: field === "priority" ? Number(event.target.value) : event.target.value || null }, new Date().toISOString());
+  saveChecklistChange();
+}
+
+function updateProject(projectId, changes, now) {
+  state.projects = (state.projects || []).map(project => project.id === projectId ? Checklist.applyProjectChange(project, changes, now) : project);
+}
+
 function renderInsights() {
   renderTodayAgenda();
   renderDeadlines();
@@ -963,7 +1117,7 @@ function renderTodayAgenda() {
 function renderDeadlines() {
   if (!el.deadlineList) return;
   const today = startOfDay(new Date());
-  const upcoming = state.entries
+  const upcoming = agendaEntries()
     .filter(entry => isEntryActive(entry) && (entry.deadline || entry.date) && new Date(`${entry.deadline || entry.date}T12:00`) >= today)
     .sort((a, b) => new Date(a.deadline || a.date) - new Date(b.deadline || b.date) || b.priority - a.priority)
     .slice(0, 6);
@@ -1348,11 +1502,12 @@ function renderTaskGuidance(entry) {
 function renderEntries() {
   if (!el.entriesList) return;
   el.entriesList.innerHTML = "";
-  if (state.entries.length === 0) {
+  const entries = agendaEntries();
+  if (entries.length === 0) {
     el.entriesList.innerHTML = `<p class="muted">Adicione compromissos, rotinas e metas para montar a semana.</p>`;
     return;
   }
-  [...state.entries]
+  entries
     .sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed") || b.priority - a.priority)
     .forEach(entry => {
     const card = document.createElement("article");

@@ -219,3 +219,37 @@ dialog::backdrop { background: #15202b66; }
   .organizer-dialog { padding: 16px; }
   .organizer-dialog > .dialog-heading { top: -16px; }
 }
+
+/* Checklist dos projetos: tarefas que a rodada diaria tira das sessoes. */
+.checklist-panel { padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.checklist-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.checklist-heading h2 { font-size: 19px; margin: 0; }
+.checklist-heading .eyebrow { margin: 0 0 2px; }
+.checklist-metrics { margin: 0; font-size: 12px; text-align: right; }
+.checklist { display: flex; flex-direction: column; gap: 10px; }
+.project-group { border-top: 1px solid var(--line); padding-top: 10px; }
+.project-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.project-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.project-title small { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+.project-title a { color: inherit; }
+.project-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.project-controls label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); }
+.project-controls select, .project-controls input { min-height: 28px; padding: 2px 6px; font-size: 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.checklist button { min-height: 28px; padding: 0 10px; font-size: 12px; border: 1px solid var(--line); background: var(--surface); }
+.checklist .tag { padding: 1px 7px; font-size: 11px; font-weight: 600; border-radius: 999px; background: #eef1f0; color: var(--muted); }
+.checklist .tag-new { background: #fff3dc; color: #8a5a10; }
+.checklist .tag-due { background: #fff0ee; color: #b73b3b; }
+.checklist-tasks { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.checklist-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 10px; border-left: 3px solid #17705d; border-radius: 4px; background: var(--surface); }
+.checklist-task.suggested { border-left-color: #355f7d; background: #f5f9fb; }
+.checklist-task-main strong { font-weight: 600; }
+.checklist-task-main .tag { margin-left: 6px; }
+.checklist-task-main p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.checklist-task-actions { display: flex; gap: 6px; }
+.done-today { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.done-today li { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.more-projects, .paused-projects { border-top: 1px solid var(--line); padding-top: 10px; }
+.more-projects > summary, .paused-projects > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.more-projects .project-group { margin-top: 10px; }
+.paused-row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 13px; }
+.checklist .checklist-more-tasks { margin-top: 6px; border: 0; background: transparent; color: #355f7d; font-weight: 600; padding: 0 2px; }

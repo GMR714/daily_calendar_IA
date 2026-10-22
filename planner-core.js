@@ -22,13 +22,16 @@
   const weekday = date => (day(date).getDay() + 6) % 7;
   const monday = date => addDays(date, -weekday(date));
   const active = entry => !["completed", "paused"].includes(entry.status);
+  // Tarefas tiradas das sessoes pela rodada diaria: vivem no checklist, fora da semana.
+  const isSyncTask = entry => entry?.source === "sync";
   const uuid = () => globalThis.crypto.randomUUID();
 
   function normalize(input = {}) {
     const data = clone(input || {});
-    for (const field of ["goals", "entries", "reports"]) {
+    for (const field of ["goals", "entries", "reports", "projects"]) {
       data[field] = [...new Map(list(data[field]).filter(item => item && typeof item.id === "string").map(item => [item.id, item])).values()];
     }
+    data.opens = [...new Set(list(data.opens).filter(validDate))].sort();
     data.preferences = { ...defaults, ...data.preferences };
     data.preferences.dailyFocusLimit = number(data.preferences.dailyFocusLimit, 240, 15, 1440);
     for (const entry of data.entries) {
@@ -68,6 +71,7 @@
   // Plan from today, never from the visible week: browsing must not reschedule tasks.
   function schedule(input, options = {}) {
     const data = normalize(input);
+    data.entries = data.entries.filter(entry => !isSyncTask(entry));
     const clock = options.now ? new Date(options.now) : new Date();
     const now = options.now ? clock : input.planningAt && dateKey(input.planningAt) === dateKey(clock) ? new Date(input.planningAt) : day(dateKey(clock));
     const today = dateKey(now);
@@ -302,7 +306,7 @@
   function merge(currentInput, baseInput, incomingInput) {
     const current = normalize(currentInput), base = normalize(baseInput), incoming = normalize(incomingInput);
     const conflicts = [];
-    for (const field of ["goals", "entries", "reports"]) {
+    for (const field of ["goals", "entries", "reports", "projects"]) {
       const result = new Map(current[field].map(item => [item.id, item]));
       const before = new Map(base[field].map(item => [item.id, item]));
       const after = new Map(incoming[field].map(item => [item.id, item]));
@@ -320,9 +324,10 @@
       else current.preferences[key] = incoming.preferences[key];
     }
     current.history = [...new Map([...current.history, ...incoming.history].map(item => [item.id, item])).values()].slice(-100);
+    current.opens = [...new Set([...current.opens, ...incoming.opens])].sort();
     if (incoming.planningAt && incoming.planningAt !== base.planningAt && (!current.planningAt || incoming.planningAt > current.planningAt)) current.planningAt = incoming.planningAt;
     return { data: current, conflicts };
   }
 
-  return { defaults, normalize, validate, schedule, applyInterpretation, merge, dateKey, addDays, validDate, validTime };
+  return { defaults, normalize, validate, schedule, applyInterpretation, merge, dateKey, addDays, validDate, validTime, isSyncTask };
 });

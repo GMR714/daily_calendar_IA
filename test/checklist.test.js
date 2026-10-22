@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildChecklist, applyTaskAction, applyProjectChange, checklistMetrics, recordOpen } = require("../checklist");
-const { mergeById } = require("../agenda-merge");
+const Planner = require("../planner-core");
 
 const TODAY = "2026-10-22";
 const NOW = "2026-10-22T15:00:00.000Z";
@@ -36,9 +36,9 @@ test("prazo do próprio projeto também conta", () => {
 });
 
 test("prioridade vem da meta ligada ao projeto, senão do projeto", () => {
-  const goal = { id: "meta-1", type: "goal", text: "Lançar o editor", priority: 3 };
   const result = buildChecklist({
-    entries: [goal, task("a", "p/com-meta"), task("b", "p/media")],
+    entries: [task("a", "p/com-meta"), task("b", "p/media")],
+    goals: [{ id: "meta-1", title: "Lançar o editor", priority: 3 }],
     projects: [project("p/media", { priority: 2 }), project("p/com-meta", { priority: 1, goalId: "meta-1" })],
     today: TODAY
   });
@@ -138,7 +138,8 @@ test("desfazer o fechamento automático devolve o status anterior", () => {
 
 test("desfazer sobrevive à mescla com a cópia do servidor", () => {
   const server = task("a", "p/a", { status: "feita", previousStatus: "sugerida", doneAuto: true, doneBy: { day: "2026-10-21", evidence: "x" } });
-  const [merged] = mergeById([server], [applyTaskAction(server, "undo", NOW)]);
+  const { data } = Planner.merge({ entries: [server] }, { entries: [server] }, { entries: [applyTaskAction(server, "undo", NOW)] });
+  const [merged] = data.entries;
   assert.equal(merged.status, "sugerida");
   assert.equal(merged.doneAuto, false);
   assert.equal(merged.doneBy, null);
