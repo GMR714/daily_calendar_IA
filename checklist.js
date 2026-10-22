@@ -57,8 +57,7 @@
     return Number((goal ? goal.priority : project.priority) || 2);
   }
 
-  function buildChecklist({ entries = [], projects = [], today }) {
-    const goals = entries.filter(entry => entry.type === "goal");
+  function buildChecklist({ entries = [], projects = [], goals = [], today }) {
     const tasks = entries.filter(isSyncTask);
     const groups = projects
       .map(project => {

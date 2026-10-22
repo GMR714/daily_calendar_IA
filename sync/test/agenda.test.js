@@ -103,6 +103,35 @@ test("tarefas abertas do projeto para mandar à IA", () => {
   assert.deepEqual(openTasksFor(data, "pessoais/x"), [{ id: "a", titulo: "A" }, { id: "b", titulo: "B" }]);
 });
 
+test("prazo fora do formato AAAA-MM-DD vira tarefa sem prazo", () => {
+  const { data } = applySummaries({ entries: [] }, [entry("2026-10-20", "PokeSurvivors", { tarefasNovas: [
+    { titulo: "Prazo bom", contexto: "c", prazo: "2026-10-25" },
+    { titulo: "Prazo por extenso", contexto: "c", prazo: "sexta" },
+    { titulo: "Prazo impossível", contexto: "c", prazo: "2026-02-30" }
+  ] })], { now: NOW });
+  const dateOf = text => data.entries.find(e => e.text === text).date;
+  assert.equal(dateOf("Prazo bom"), "2026-10-25");
+  assert.equal(dateOf("Prazo por extenso"), null);
+  assert.equal(dateOf("Prazo impossível"), null);
+});
+
+test("o que a rodada grava passa na validação do app", () => {
+  const Planner = require("../../planner-core");
+  const { data } = applySummaries({ entries: [manual], goals: [], preferences: {} }, [entry("2026-10-20", "PokeSurvivors", { tarefasNovas: [{ titulo: "Testar", contexto: "c", prazo: "amanhã" }] })], { now: NOW });
+  assert.doesNotThrow(() => Planner.validate(Planner.normalize(data)));
+});
+
+test("salvar incrementa a revisão e marca a hora, pro app perceber a mudança", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-"));
+  const file = path.join(dir, "agenda-data.json");
+  fs.writeFileSync(file, JSON.stringify({ entries: [manual], revision: 4, updatedAt: "2026-10-01T00:00:00.000Z", planningAt: "2026-10-01T00:00:00.000Z" }));
+  saveAgenda(file, loadAgenda(file), { now: NOW });
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(saved.revision, 5);
+  assert.equal(saved.updatedAt, NOW);
+  assert.equal(saved.planningAt, "2026-10-01T00:00:00.000Z", "não replaneja o dia");
+});
+
 test("carrega com padrões e salva guardando a versão anterior do dia", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-"));
   const file = path.join(dir, "agenda-data.json");

@@ -1,5 +1,5 @@
 function dataSnapshot() {
-  return structuredClone({ goals: state.goals, entries: state.entries, reports: state.reports, preferences: state.preferences, history: state.history || [], revision: state.revision || 0, planningAt: state.planningAt });
+  return structuredClone({ goals: state.goals, entries: state.entries, reports: state.reports, projects: state.projects || [], opens: state.opens || [], preferences: state.preferences, history: state.history || [], revision: state.revision || 0, planningAt: state.planningAt });
 }
 function saveLocalSnapshot() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));

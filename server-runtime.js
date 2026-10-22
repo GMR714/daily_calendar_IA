@@ -9,12 +9,12 @@ const Overlay = require("./overlay-core");
 function createApp({ interpret, aiStatus, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json") }) {
   const store = createStore(file);
   const proposals = new Map();
-  const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css" };
+  const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js" };
   async function propose(payload) {
     const current = store.read();
     if (!String(payload.message || "").trim()) throw new Error("Escreva uma mensagem.");
     if (payload.message.length > 24000) throw new Error("Divida a mensagem em partes de ate 24 mil caracteres.");
-    const context = { goals: current.goals, entries: current.entries, recentReports: current.reports.slice(-10), preferences: current.preferences };
+    const context = { goals: current.goals, entries: current.entries.filter(entry => !Planner.isSyncTask(entry)), recentReports: current.reports.slice(-10), preferences: current.preferences };
     const result = await interpret({ ...payload, context });
     if (result.mode !== "ai") throw new Error(result.message || "Ollama indisponivel. Sua agenda nao foi alterada.");
     const allowDelete = /\b(exclu|apag|remov|delet)/i.test(payload.message);

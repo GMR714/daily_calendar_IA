@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { projectNotePath } = require("./vault");
+const { validDate } = require("../planner-core");
 
 const OPEN = new Set(["sugerida", "confirmada"]);
 const DEFAULT_DURATION = 60;
@@ -43,14 +44,16 @@ function loadAgenda(file) {
 }
 
 // Guarda a primeira versão do dia antes de sobrescrever e troca o arquivo de uma vez.
-function saveAgenda(file, data, { backupFile } = {}) {
+// Nova revisão: o app só busca o arquivo de novo quando ela muda. O planningAt fica como
+// está, porque tarefa da rodada não entra no planejamento.
+function saveAgenda(file, data, { backupFile, now = new Date().toISOString() } = {}) {
   if (backupFile && fs.existsSync(file) && !fs.existsSync(backupFile)) {
     fs.mkdirSync(path.dirname(backupFile), { recursive: true });
     fs.copyFileSync(file, backupFile);
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.sync-tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify({ ...data, revision: (Number(data.revision) || 0) + 1, updatedAt: now }, null, 2));
   fs.renameSync(tmp, file);
 }
 
@@ -110,7 +113,8 @@ function applySummaries(data, processed, { now }) {
         text: task.titulo,
         context: task.contexto,
         projectId: pid,
-        date: task.prazo || null,
+        // O app recusa gravar qualquer coisa se uma data não for AAAA-MM-DD válida.
+        date: validDate(task.prazo) ? task.prazo : null,
         time: null,
         duration: DEFAULT_DURATION,
         priority: DEFAULT_PRIORITY,

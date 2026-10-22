@@ -13,7 +13,8 @@ function createStore(file) {
     const data = Planner.validate(Planner.normalize(input));
     data.revision = previous.revision + 1;
     data.updatedAt = new Date().toISOString();
-    const constraints = value => JSON.stringify([value.entries, value.goals, value.preferences]);
+    // Tarefas da rodada nao entram no planejamento: decidir uma delas nao replaneja o dia.
+    const constraints = value => JSON.stringify([value.entries.filter(entry => !Planner.isSyncTask(entry)), value.goals, value.preferences]);
     if (constraints(previous) !== constraints(data)) data.planningAt = data.updatedAt;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     if (fs.existsSync(file)) {
