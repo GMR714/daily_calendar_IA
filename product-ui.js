@@ -136,10 +136,8 @@ function renderProductExtras() {
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add("simple-ui");
   const shell = document.querySelector(".app-shell");
-  const header = document.createElement("header"); header.className = "product-header";
-  header.innerHTML = '<a class="product-name" href="#">Minha agenda</a><span id="syncStatus" role="status">Conectando...</span><button type="button" id="openPlans">Meus planos</button>';
-  shell.before(header);
-  header.querySelector("a").onclick = event => { event.preventDefault(); el.todayWeek.click(); };
+  const rail = document.querySelector("#rail");
+  NavRail.montar(rail, { ativo: NavRail.telaDoHash(location.hash) });
 
   const organizer = document.createElement("dialog"); organizer.id = "organizerDialog"; organizer.className = "organizer-dialog";
   organizer.innerHTML = '<div class="dialog-heading"><h2>Meus planos</h2><button type="button" id="closeOrganizer" aria-label="Fechar planos" title="Fechar">&#215;</button></div><div id="organizerContent"></div>';
@@ -168,7 +166,6 @@ document.addEventListener("DOMContentLoaded", () => {
     Object.entries(groups).forEach(([name, node]) => { node.open = name === key; });
     organizer.showModal(); groups[key].scrollIntoView({ block: "nearest" });
   };
-  document.querySelector("#openPlans").onclick = () => openOrganizer("goals");
   document.querySelector("#closeOrganizer").onclick = () => organizer.close();
 
   const actions = document.querySelector(".calendar-actions-menu > div");
@@ -181,8 +178,13 @@ document.addEventListener("DOMContentLoaded", () => {
   report.onclick = () => { actions.parentElement.open = false; setInputMode("report"); el.quickMessage.focus(); }; actions.prepend(report);
 
   const filters = document.createElement("details"); filters.id = "calendarOptions"; filters.className = "calendar-options";
-  filters.innerHTML = '<summary>Filtros e cores</summary>';
-  const classification = document.querySelector(".calendar-classification"); classification.before(filters); filters.append(classification, el.goalLegend);
+  filters.innerHTML = '<summary>Filtros</summary>';
+  const classification = document.querySelector(".calendar-classification"); classification.before(filters);
+  const filterPanel = document.createElement("div"); filterPanel.className = "calendar-popover";
+  filterPanel.append(classification, el.goalLegend); filters.append(filterPanel);
+  // Filtros e pendencias viram botoes na barra do calendario: a altura fica toda para as horas.
+  const calendarActions = document.querySelector(".calendar-actions-menu");
+  calendarActions.before(el.planWarnings, filters);
   const colorControl = document.createElement("label"); colorControl.className = "color-control";
   colorControl.innerHTML = 'Cores por <select id="colorMode"><option value="category">Categoria</option><option value="goal">Meta</option></select>';
   classification.append(colorControl);
@@ -192,7 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const assistant = document.querySelector(".assistant-panel");
   assistant.querySelector("h2").textContent = "O que vamos organizar?";
-  el.quickMessage.rows = 2; el.quickMessage.placeholder = "Uma tarefa, uma meta ou como foi seu dia...";
+  el.quickMessage.rows = 1; el.quickMessage.placeholder = "O que vamos organizar? Uma tarefa, uma meta ou como foi seu dia...";
   const label = el.quickMessage.closest("label");
   Array.from(label.childNodes).filter(node => node.nodeType === Node.TEXT_NODE).forEach(node => node.remove());
   el.quickMessage.setAttribute("aria-label", "Mensagem para a agenda");
@@ -228,6 +230,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (raw) downloadJson(JSON.parse(raw), "agenda-recuperacao.json");
     else alert("Nao ha uma copia local anterior.");
   };
+
+  // Telas pelo endereco (menu lateral): #agenda e #checklist trocam a tela; #planos e #ajustes abrem o
+  // "Meus planos" por cima da tela atual e, ao fechar, o endereco volta para ela.
+  let telaAtual = "agenda";
+  function irPara(tela) {
+    if (tela === "planos" || tela === "ajustes") {
+      NavRail.marcar(rail, tela);
+      openOrganizer(tela === "planos" ? "goals" : "settings");
+      return;
+    }
+    telaAtual = tela;
+    document.body.dataset.tela = tela;
+    NavRail.marcar(rail, tela);
+    if (tela === "agenda") render(); // a escala do calendario depende da altura, que so existe com a tela visivel
+  }
+  organizer.addEventListener("close", () => {
+    NavRail.marcar(rail, telaAtual);
+    if (location.hash !== "#" + telaAtual) history.replaceState(null, "", "#" + telaAtual);
+  });
+  window.addEventListener("hashchange", () => irPara(NavRail.telaDoHash(location.hash)));
+  irPara(NavRail.telaDoHash(location.hash));
   renderProductExtras();
   syncStatus(syncDirty ? "Alteracoes locais aguardando sincronizacao" : serverSyncReady ? "Agenda sincronizada" : "Conectando...", syncDirty);
   fetch("/api/status").then(response => response.json()).then(status => {

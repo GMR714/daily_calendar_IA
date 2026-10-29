@@ -1,0 +1,36 @@
+/* Menu lateral unico (nav-rail.js), o mesmo na agenda e no cockpit. */
+:root { --rail-w: 76px; }
+.rail { position: fixed; inset: 0 auto 0 0; width: var(--rail-w); z-index: 40; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 6px; background: #1f2430; color: #c3ccd8; font-family: "Segoe UI", system-ui, sans-serif; }
+.rail-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; width: 100%;
+  padding: 6px 2px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 11px; font-weight: 600;
+  text-decoration: none; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.rail-item svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.rail-item:hover { background: #2c3342; color: #fff; }
+.rail-item.ativo { background: #e6f2ec; color: #17644b; }
+.rail-item:focus-visible { outline: 2px solid #3fb68b; outline-offset: 2px; }
+.rail-item:disabled { opacity: .6; cursor: wait; }
+.rail-item.separar { margin-top: 16px; position: relative; }
+.rail-item.separar::before { content: ""; position: absolute; top: -9px; left: 14px; right: 14px; border-top: 1px solid #3a4253; }
+.rail-rodape { margin-top: auto; padding: 0 2px; text-align: center; font-size: 9px; line-height: 1.3; color: #8f9bab; overflow-wrap: break-word; }
+.rail-rodape #syncStatus::before { content: ""; display: block; width: 8px; height: 8px; margin: 0 auto 4px; border-radius: 50%; background: #3fb68b; }
+.rail-rodape #syncStatus.error { color: #ffb4a8; }
+.rail-rodape #syncStatus.error::before { background: #e5534b; }
+#syncStatus:empty { display: none; }
+.rail-aviso { position: fixed; left: calc(var(--rail-w) + 16px); bottom: 16px; z-index: 60; max-width: min(440px, calc(100vw - 32px));
+  padding: 10px 14px; border-radius: 10px; background: #1f2430; color: #fff; font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .22); }
+.rail-aviso.erro { background: #8f2d22; }
+.rail-aviso[hidden] { display: none; }
+
+/* Celular: o menu vira barra inferior. */
+@media (max-width: 700px) {
+  :root { --rail-w: 0px; --rail-h: 60px; }
+  .rail { inset: auto 0 0 0; width: auto; height: var(--rail-h); flex-direction: row; padding: 4px; gap: 0; }
+  .rail-item { flex: 1; min-height: 0; font-size: 10px; gap: 2px; padding: 4px 0; }
+  .rail-item svg { width: 20px; height: 20px; }
+  .rail-item.separar { margin: 0; }
+  .rail-item.separar::before { display: none; }
+  .rail-rodape { display: none; }
+  .rail-aviso { left: 12px; bottom: calc(var(--rail-h) + 12px); }
+}
