@@ -1,0 +1,51 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { createCockpitSource, commandFor, DEFAULT_CLI } = require("../cockpit-source");
+
+test("cockpit roda o copiloto uma vez, guarda e serve do cache", async () => {
+  let calls = 0;
+  let clock = 0;
+  const source = createCockpitSource({ run: async () => ({ n: ++calls }), ttlMs: 1000, now: () => clock });
+  const [a, b] = await Promise.all([source.get(), source.get()]);
+  assert.equal(calls, 1);
+  assert.equal(a.dados.n, 1);
+  assert.equal(b.dados.n, 1);
+  clock = 500;
+  assert.equal((await source.get()).dados.n, 1);
+  assert.equal(calls, 1);
+  clock = 1500;
+  const velho = await source.get();
+  assert.equal(velho.dados.n, 1);
+  assert.equal(velho.atualizando, true);
+  assert.equal(velho.idadeSegundos, 2);
+  await source.refresh();
+  assert.equal((await source.get()).dados.n, 2);
+  assert.equal((await source.get({ force: true })).dados.n, 3);
+});
+
+test("cockpit sem copiloto vira 503 com mensagem clara; com cache, mostra o ultimo dado e o erro", async () => {
+  let falhar = true;
+  let clock = 0;
+  const source = createCockpitSource({
+    run: async () => {
+      if (falhar) throw Object.assign(new Error("Command failed"), { stderr: "cli.py: error: argument grupo: invalid choice: 'cockpit'" });
+      return { ok: 1 };
+    },
+    ttlMs: 10,
+    now: () => clock
+  });
+  await assert.rejects(source.get(), error => error.status === 503 && /PR #5/.test(error.message));
+  falhar = false;
+  assert.equal((await source.get()).dados.ok, 1);
+  falhar = true;
+  clock = 100;
+  const view = await source.get({ force: true });
+  assert.equal(view.dados.ok, 1);
+  assert.match(view.erro, /PR #5/);
+});
+
+test("comando usa py -3 no Windows e respeita COCKPIT_CLI e COCKPIT_PYTHON", () => {
+  assert.deepEqual(commandFor({}, "win32"), { file: "py", args: ["-3", DEFAULT_CLI, "cockpit", "--json"] });
+  assert.deepEqual(commandFor({ COCKPIT_CLI: "/x/cli.py", COCKPIT_PYTHON: "python3" }, "linux"),
+    { file: "python3", args: ["/x/cli.py", "cockpit", "--json"] });
+});

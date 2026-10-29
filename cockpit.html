@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cockpit da IA</title>
+    <link rel="stylesheet" href="cockpit.css?v=1" />
+  </head>
+  <body>
+    <header class="topo">
+      <div class="topo-esq">
+        <a class="voltar" href="/" title="Voltar para a agenda">&#8592; Agenda</a>
+        <div class="titulo">
+          <p class="eyebrow">Copiloto &middot; o que a IA est&aacute; fazendo</p>
+          <h1>Cockpit da IA</h1>
+        </div>
+      </div>
+      <div class="topo-dir">
+        <div class="vivo" id="vivo" title="A tela se atualiza sozinha a cada 30 s"><span class="pulso" aria-hidden="true"></span><span id="vivoTexto">carregando&hellip;</span></div>
+        <label class="busca"><span class="sr">Buscar</span><input id="busca" type="search" placeholder="Buscar agente, rotina ou item" autocomplete="off" /><kbd>/</kbd></label>
+        <button id="atualizar" class="botao" type="button" title="Ler o Copiloto agora (atalho: r)">Atualizar</button>
+      </div>
+    </header>
+    <nav class="abas" role="tablist" aria-label="Vistas">
+      <button role="tab" type="button" data-aba="painel">Painel</button>
+      <button role="tab" type="button" data-aba="mapa">Mapa</button>
+      <button role="tab" type="button" data-aba="hoje">Hoje</button>
+    </nav>
+    <main class="conteudo">
+      <section class="kpis" id="kpis" aria-label="Resumo"></section>
+      <div id="aviso" class="aviso" role="alert" hidden></div>
+      <section class="alertas" id="alertas" aria-label="O que olhar agora"></section>
+      <section id="aba-painel" class="aba">
+        <div class="colunas">
+          <section class="coluna" aria-labelledby="t-agentes">
+            <header class="coluna-topo"><h2 id="t-agentes">Agentes</h2><span id="n-agentes" class="contagem"></span></header>
+            <div id="agentes"></div>
+          </section>
+          <section class="coluna" aria-labelledby="t-voce" id="coluna-voce">
+            <header class="coluna-topo"><h2 id="t-voce">Voc&ecirc;</h2><span id="n-voce" class="contagem"></span></header>
+            <div id="voce-filtros" class="segmentos" role="group" aria-label="Tipo de item"></div>
+            <div id="voce"></div>
+          </section>
+          <section class="coluna" aria-labelledby="t-rotinas">
+            <header class="coluna-topo"><h2 id="t-rotinas">Rotinas</h2><span id="n-rotinas" class="contagem"></span></header>
+            <div id="rotinas-filtros" class="segmentos" role="group" aria-label="Segmento"></div>
+            <div id="linha-dia" class="linha-dia" aria-hidden="true"></div>
+            <div id="rotinas"></div>
+          </section>
+        </div>
+      </section>
+      <section id="aba-mapa" class="aba" hidden>
+        <div class="mapa-caixa"><svg id="mapa" viewBox="0 0 1100 660" role="img" aria-label="Mapa dos agentes, da fila e das rotinas"></svg></div>
+        <p class="legenda" id="legenda"></p>
+      </section>
+      <section id="aba-hoje" class="aba" hidden><div id="hoje"></div></section>
+    </main>
+    <div id="veu" class="veu" hidden></div>
+    <aside id="gaveta" class="gaveta" aria-hidden="true" aria-label="Detalhe">
+      <button class="fechar" id="fecharGaveta" type="button" aria-label="Fechar">&times;</button>
+      <div id="gavetaCorpo"></div>
+    </aside>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script src="cockpit-view.js?v=1"></script>
+    <script src="cockpit.js?v=1"></script>
+  </body>
+</html>

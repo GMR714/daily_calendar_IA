@@ -5,11 +5,29 @@ const { randomUUID } = require("node:crypto");
 const Planner = require("./planner-core");
 const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
+const { createCockpitSource } = require("./cockpit-source");
 
-function createApp({ interpret, aiStatus, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json") }) {
+function createApp({ interpret, aiStatus, cockpit, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json") }) {
   const store = createStore(file);
   const proposals = new Map();
-  const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js" };
+  let cockpitSource = cockpit;
+  const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js",
+    "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js" };
+  // Item da fila "Voce" do Copiloto vira tarefa de 30 min para hoje; a impressao digital evita duplicar.
+  function cockpitParaAgenda(body) {
+    const id = String(body.id || "").trim().slice(0, 80);
+    const titulo = String(body.titulo || "").trim().slice(0, 200);
+    if (!id || !titulo) throw Object.assign(new Error("Item sem identificacao ou titulo."), { status: 400 });
+    const current = store.read();
+    const fingerprint = `cockpit::${id}`;
+    const existente = current.entries.find(entry => entry.fingerprint === fingerprint);
+    if (existente) return { alreadyExists: true, entry: existente };
+    const entry = { id: `cockpit-${randomUUID()}`, type: "task", source: "cockpit", text: titulo, context: String(body.texto || "").slice(0, 2000),
+      duration: 30, priority: 3, deadline: Planner.dateKey(new Date()), fingerprint,
+      origin: { area: "Copiloto", item: id, tipo: String(body.tipo || "").slice(0, 40) }, createdAt: new Date().toISOString() };
+    const data = store.write({ ...current, entries: [...current.entries, entry] });
+    return { created: true, entry, revision: data.revision };
+  }
   async function propose(payload) {
     const current = store.read();
     if (!String(payload.message || "").trim()) throw new Error("Escreva uma mensagem.");
@@ -45,6 +63,12 @@ function createApp({ interpret, aiStatus, file = process.env.AGENDA_DATA_FILE ||
         return reply(res, 200, fs.readFileSync(path.join(__dirname, name)), `${type};charset=utf-8`);
       }
       if (req.method === "GET" && url.pathname === "/api/state") return reply(res, 200, store.read());
+      if (req.method === "GET" && url.pathname === "/api/cockpit") {
+        cockpitSource ||= createCockpitSource();
+        try { return reply(res, 200, await cockpitSource.get({ force: url.searchParams.get("force") === "1" })); }
+        catch (error) { return reply(res, error.status || 503, { error: error.message }); }
+      }
+      if (req.method === "POST" && url.pathname === "/api/cockpit/agenda") return reply(res, 200, cockpitParaAgenda(await readJson(req)));
       if (req.method === "GET" && url.pathname === "/api/overlay") return reply(res, 200, Overlay.checklist(store.read()));
       if (req.method === "GET" && url.pathname === "/api/status") {
         if (aiStatus) {
