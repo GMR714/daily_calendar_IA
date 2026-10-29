@@ -86,7 +86,7 @@ function isOpenSyncTask(entry, pid) {
 }
 
 function openTasksFor(data, pid) {
-  return (data.entries || []).filter(entry => isOpenSyncTask(entry, pid)).map(entry => ({ id: entry.id, titulo: entry.text }));
+  return (data.entries || []).filter(entry => isOpenSyncTask(entry, pid)).map(entry => ({ id: entry.id, titulo: entry.text, contexto: entry.context || "" }));
 }
 
 function upsertProject(projects, item, now) {
@@ -109,6 +109,7 @@ function applySummaries(data, processed, { now }) {
   let projects = (data.projects || []).slice();
   let added = 0;
   let closed = 0;
+  let updated = 0;
   const withSummary = processed.filter(item => item.summary);
 
   for (const item of withSummary) {
@@ -120,6 +121,20 @@ function applySummaries(data, processed, { now }) {
       const task = entries[index];
       entries[index] = { ...task, previousStatus: task.status, status: "feita", doneAuto: true, doneBy: { day: item.day, evidence: done.evidencia }, updatedAt: now };
       closed += 1;
+    }
+    // Trabalho que fez a tarefa aberta andar atualiza a própria tarefa, em vez de virar outra.
+    // O updatedAt fica: ele data a última decisão no app, e a mescla do app é por conteúdo.
+    for (const update of item.summary.tarefasAtualizadas || []) {
+      const index = entries.findIndex(entry => entry.id === update.id && isOpenSyncTask(entry, pid));
+      if (index === -1) continue;
+      const task = entries[index];
+      const progress = task.progress || [];
+      const feito = String(update.feito || "").trim();
+      const step = feito && !progress.some(p => p.day === item.day && p.text === feito) ? [{ day: item.day, text: feito }] : [];
+      const context = String(update.contexto || "").trim() || task.context;
+      if (!step.length && context === task.context) continue;
+      entries[index] = { ...task, context, progress: [...progress, ...step] };
+      updated += 1;
     }
   }
 
@@ -153,7 +168,7 @@ function applySummaries(data, processed, { now }) {
     }
   }
 
-  return { data: { ...data, entries, projects }, added, closed };
+  return { data: { ...data, entries, projects }, added, closed, updated };
 }
 
 // Ficha de cada tarefa da rodada para o vault. A área e o nome vêm do projeto da agenda
@@ -179,7 +194,8 @@ function taskViews(data, { offsetHours = -3 } = {}) {
         doneDay: entry.status === "feita" ? (entry.doneBy && entry.doneBy.day) || changedDay : null,
         doneAuto: Boolean(entry.doneAuto),
         evidence: entry.doneBy ? entry.doneBy.evidence || null : null,
-        deadline: validDate(entry.date) ? entry.date : null
+        deadline: validDate(entry.date) ? entry.date : null,
+        progress: (entry.progress || []).filter(p => p && p.day && p.text).sort((a, b) => a.day.localeCompare(b.day))
       };
     })
     .filter(task => task.area && task.project && task.title);

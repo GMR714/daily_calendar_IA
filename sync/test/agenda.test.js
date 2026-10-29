@@ -129,7 +129,39 @@ test("tarefas abertas do projeto para mandar à IA", () => {
     { id: "d", source: "sync", projectId: "pessoais/y", status: "sugerida", text: "D" },
     { id: "e", projectId: "pessoais/x", text: "manual" }
   ] };
-  assert.deepEqual(openTasksFor(data, "pessoais/x"), [{ id: "a", titulo: "A" }, { id: "b", titulo: "B" }]);
+  data.entries[1].context = "Onde B parou.";
+  assert.deepEqual(openTasksFor(data, "pessoais/x"), [{ id: "a", titulo: "A", contexto: "" }, { id: "b", titulo: "B", contexto: "Onde B parou." }]);
+});
+
+test("tarefa aberta que o dia fez andar ganha o avanço e o contexto novo, sem virar tarefa nova", () => {
+  const open = { id: "sync-a", source: "sync", status: "confirmada", text: "Testar o menu no celular", context: "Abre com Esc.", projectId: "pessoais/pokesurvivors", updatedAt: "2026-10-19T10:00:00.000Z" };
+  const closed = { ...open, id: "sync-f", status: "feita", text: "Feita", context: "velho" };
+  const other = { ...open, id: "sync-o", projectId: "pessoais/outro", context: "velho" };
+  const day = (d, updates) => entry(d, "PokeSurvivors", { tarefasAtualizadas: updates });
+  const first = applySummaries({ entries: [open, closed, other] }, [
+    day("2026-10-20", [{ id: "sync-a", feito: "Testou no Android.", contexto: "Falta o iPhone." }, { id: "sync-f", feito: "x", contexto: "x" }, { id: "sync-o", feito: "x", contexto: "x" }, { id: "sumiu", feito: "x", contexto: "x" }]),
+    day("2026-10-21", [{ id: "sync-a", feito: "", contexto: "Falta o iPhone 12 do Fulano." }])
+  ], { now: NOW });
+  assert.equal(first.updated, 2);
+  assert.equal(first.added, 0);
+  const task = first.data.entries.find(e => e.id === "sync-a");
+  assert.deepEqual(task.progress, [{ day: "2026-10-20", text: "Testou no Android." }]);
+  assert.equal(task.context, "Falta o iPhone 12 do Fulano.");
+  assert.equal(task.status, "confirmada");
+  // A data da última decisão no app não muda por causa da rodada.
+  assert.equal(task.updatedAt, "2026-10-19T10:00:00.000Z");
+  assert.equal(first.data.entries.find(e => e.id === "sync-f").context, "velho");
+  assert.equal(first.data.entries.find(e => e.id === "sync-o").context, "velho");
+
+  const again = applySummaries(first.data, [day("2026-10-21", [{ id: "sync-a", feito: "", contexto: "Falta o iPhone 12 do Fulano." }])], { now: NOW });
+  assert.equal(again.updated, 0);
+  assert.deepEqual(again.data.entries.find(e => e.id === "sync-a").progress, task.progress);
+});
+
+test("ficha da tarefa traz os avanços em ordem de dia", () => {
+  const data = { projects: [{ id: "p/x", name: "X", area: "P" }], entries: [{ id: "sync-a", source: "sync", status: "sugerida", text: "A", projectId: "p/x", progress: [{ day: "2026-10-22", text: "B" }, { day: "2026-10-21", text: "A" }] }] };
+  assert.deepEqual(taskViews(data)[0].progress, [{ day: "2026-10-21", text: "A" }, { day: "2026-10-22", text: "B" }]);
+  assert.deepEqual(taskViews({ ...data, entries: [{ ...data.entries[0], progress: undefined }] })[0].progress, []);
 });
 
 function suggestions(project, titles) {

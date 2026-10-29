@@ -265,15 +265,21 @@ function indexTemplate() {
   ].join("\n");
 }
 
+// Linhas com data, em ordem de data; no mesmo dia, na ordem da vida da tarefa.
 function taskLog(task) {
-  const lines = [];
-  if (task.createdDay) lines.push(`- ${fullDay(task.createdDay)} — sugerida pela rodada, a partir das sessões do dia`);
-  if (task.status === "confirmada" && task.changedDay) lines.push(`- ${fullDay(task.changedDay)} — confirmada no app`);
+  const items = [];
+  if (task.createdDay) items.push([task.createdDay, "sugerida pela rodada, a partir das sessões do dia"]);
+  if (task.status === "confirmada" && task.changedDay) items.push([task.changedDay, "confirmada no app"]);
+  for (const step of task.progress || []) items.push([step.day, `avançou: ${step.text}`]);
   if (task.status === "feita" && task.doneDay) {
-    lines.push(`- ${fullDay(task.doneDay)} — ${task.doneAuto ? `concluída pela rodada${task.evidence ? `: ${task.evidence}` : ""}` : "marcada como feita no app"}`);
+    items.push([task.doneDay, task.doneAuto ? `concluída pela rodada${task.evidence ? `: ${task.evidence}` : ""}` : "marcada como feita no app"]);
   }
-  if (task.status === "descartada" && task.changedDay) lines.push(`- ${fullDay(task.changedDay)} — descartada no app`);
-  return lines;
+  if (task.status === "descartada" && task.changedDay) items.push([task.changedDay, "descartada no app"]);
+  return items.sort((a, b) => a[0].localeCompare(b[0])).map(([day, text]) => `- ${fullDay(day)} — ${text}`);
+}
+
+function lastProgressDay(task) {
+  return (task.progress || []).map(step => step.day).sort().pop() || null;
 }
 
 function taskNoteText(current, task) {
@@ -299,9 +305,12 @@ function renderTasks(tasks) {
   const open = [...tasks.filter(t => t.status === "confirmada").sort(newestFirst), ...tasks.filter(t => t.status === "sugerida").sort(newestFirst)];
   const done = tasks.filter(t => t.status === "feita").sort((a, b) => String(b.doneDay || "").localeCompare(String(a.doneDay || "")));
   const lines = ["## Tarefas", `### Abertas (${open.length})`];
-  lines.push(...(open.length
-    ? open.map(t => `- ${taskLink(t)} — ${t.status === "confirmada" ? "confirmada" : t.createdDay ? `sugerida em ${shortDay(t.createdDay)}` : "sugerida"}`)
-    : ["- (nenhuma)"]));
+  const openLine = t => {
+    const state = t.status === "confirmada" ? "confirmada" : t.createdDay ? `sugerida em ${shortDay(t.createdDay)}` : "sugerida";
+    const moved = lastProgressDay(t);
+    return `- ${taskLink(t)} — ${state}${moved ? ` · avançou em ${shortDay(moved)}` : ""}`;
+  };
+  lines.push(...(open.length ? open.map(openLine) : ["- (nenhuma)"]));
   if (done.length) {
     lines.push("", `### Concluídas (${done.length})`, ...done.slice(0, RECENT_DONE).map(t => `- ${taskLink(t)} — ${t.doneDay ? shortDay(t.doneDay) : "feita"}`));
     if (done.length > RECENT_DONE) lines.push(`- … e mais ${done.length - RECENT_DONE} em [[${TASKS_BASE_PATH}|Tarefas]]`);
@@ -327,7 +336,11 @@ function renderHistory(history, tasks) {
   const byDay = new Map(history.map(entry => [entry.day, entry]));
   const doneByDay = new Map();
   for (const t of tasks.filter(t => t.status === "feita" && t.doneDay)) doneByDay.set(t.doneDay, [...(doneByDay.get(t.doneDay) || []), t]);
-  const days = Array.from(new Set([...byDay.keys(), ...doneByDay.keys()])).sort().reverse();
+  const movedByDay = new Map();
+  for (const t of tasks) {
+    for (const day of new Set((t.progress || []).map(step => step.day))) movedByDay.set(day, [...(movedByDay.get(day) || []), t]);
+  }
+  const days = Array.from(new Set([...byDay.keys(), ...doneByDay.keys(), ...movedByDay.keys()])).sort().reverse();
   if (!days.length) return "## Histórico\n- (sem registro)";
   const lines = ["## Histórico"];
   let month = null;
@@ -337,7 +350,12 @@ function renderHistory(history, tasks) {
       month = day.slice(0, 7);
       lines.push(`### ${monthTitle(day)}`);
     }
-    lines.push(`- **${dayWithWeekday(day)}**`, ...dayLines(byDay.get(day)), ...(doneByDay.get(day) || []).map(t => `  - Concluiu ${taskLink(t)}`));
+    lines.push(
+      `- **${dayWithWeekday(day)}**`,
+      ...dayLines(byDay.get(day)),
+      ...(movedByDay.get(day) || []).map(t => `  - Avançou ${taskLink(t)}`),
+      ...(doneByDay.get(day) || []).map(t => `  - Concluiu ${taskLink(t)}`)
+    );
   }
   return lines.join("\n");
 }

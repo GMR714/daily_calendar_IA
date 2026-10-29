@@ -302,7 +302,7 @@ async function runVault({
   }
 
   // Agenda antes do vault: as tarefas sugeridas nesta rodada já ganham nota agora.
-  let tasks = { added: 0, closed: 0 };
+  let tasks = { added: 0, closed: 0, updated: 0 };
   let agendaData = null;
   if (agenda) {
     // Relê o arquivo: o app pode ter gravado nele enquanto a IA resumia.
@@ -335,6 +335,7 @@ async function runVault({
     limitHit,
     capHit,
     tasksAdded: tasks.added,
+    tasksUpdated: tasks.updated,
     tasksClosed: tasks.closed,
     projectDays: items.length,
     taskNotes: written.taskNotes,
@@ -394,7 +395,7 @@ async function main() {
 
   const result = await runVault({ since, until, dryRun: args.dryRun, renderOnly: args.renderOnly, vaultDir: args.vaultDir, agendaFile: args.agendaFile, model: args.model, maxChars: args.maxChars, today, log: line => console.log(line) });
   console.log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.projects} projetos e ${result.taskNotes} notas de tarefa no vault (${seconds()}s).`);
-  if (args.agendaFile) console.log(`Agenda${args.dryRun ? " (prévia)" : ""}: ${result.tasksAdded} tarefas sugeridas, ${result.tasksClosed} fechadas.`);
+  if (args.agendaFile) console.log(`Agenda${args.dryRun ? " (prévia)" : ""}: ${result.tasksAdded} tarefas sugeridas, ${result.tasksUpdated} atualizadas, ${result.tasksClosed} fechadas.`);
   if (result.limitHit) console.log("Limite de uso do Claude atingido. Rode de novo depois que ele renovar: o que já foi resumido está no cache.");
   console.log(`${args.dryRun ? "Prévia do vault" : "Vault"} em ${result.target}`);
   if (result.failed || result.pending) process.exitCode = 2;
