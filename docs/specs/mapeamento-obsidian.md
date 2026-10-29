@@ -62,6 +62,9 @@ Decisões fechadas na conversa:
 7. **Onde as tarefas moram**: no **app de agenda** (é onde se marca feito). O Obsidian guarda
    estado, histórico e "onde está cada coisa" de cada projeto, mas não a lista de tarefas.
 
+> Em 29/10 o `Diário/` e a decisão 7 foram trocados por uma nota por tarefa e o histórico
+> dentro da nota do projeto: ver `docs/specs/vault-por-tarefa.md`.
+
 Proposta de organização do vault (a confirmar no gate):
 
 - `Projetos/<Área>/<Projeto>.md` — por projeto: o que é, estado atual, próximos passos em

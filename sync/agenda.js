@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { projectNotePath } = require("./vault");
+const { localDay } = require("./digest");
 const { validDate } = require("../planner-core");
 
 const OPEN = new Set(["sugerida", "confirmada"]);
@@ -155,4 +156,33 @@ function applySummaries(data, processed, { now }) {
   return { data: { ...data, entries, projects }, added, closed };
 }
 
-module.exports = { projectId, fingerprint, openTasksFor, applySummaries, loadAgenda, saveAgenda };
+// Ficha de cada tarefa da rodada para o vault. A área e o nome vêm do projeto da agenda
+// (acompanham renomeação); a origem só cobre projeto que saiu da lista.
+function taskViews(data, { offsetHours = -3 } = {}) {
+  const projects = new Map((data.projects || []).map(p => [p.id, p]));
+  return (data.entries || [])
+    .filter(entry => entry.source === "sync" && entry.projectId)
+    .map(entry => {
+      const project = projects.get(entry.projectId);
+      const origin = entry.origin || {};
+      const changedDay = entry.updatedAt ? localDay(entry.updatedAt, offsetHours) : null;
+      return {
+        id: entry.id,
+        title: entry.text,
+        status: entry.status,
+        area: project ? project.area : origin.area,
+        project: project ? project.name : origin.project,
+        context: entry.context || "",
+        createdAt: entry.createdAt || null,
+        createdDay: origin.day || (entry.createdAt ? localDay(entry.createdAt, offsetHours) : null),
+        changedDay,
+        doneDay: entry.status === "feita" ? (entry.doneBy && entry.doneBy.day) || changedDay : null,
+        doneAuto: Boolean(entry.doneAuto),
+        evidence: entry.doneBy ? entry.doneBy.evidence || null : null,
+        deadline: validDate(entry.date) ? entry.date : null
+      };
+    })
+    .filter(task => task.area && task.project && task.title);
+}
+
+module.exports = { projectId, fingerprint, openTasksFor, applySummaries, loadAgenda, saveAgenda, taskViews };

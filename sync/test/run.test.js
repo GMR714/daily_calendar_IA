@@ -79,7 +79,7 @@ function fakeSummary(day) {
   };
 }
 
-test("rodada do vault: escreve projeto, diário e índice, preserva o resto e usa o cache", async () => {
+test("rodada do vault: escreve projeto com histórico e índice com avulsas, sem Diário/, preserva o resto e usa o cache", async () => {
   const { root, projects } = makeProjectsDir();
   const vaultDir = path.join(root, "vault");
   const dataDir = path.join(root, "data");
@@ -106,10 +106,13 @@ test("rodada do vault: escreve projeto, diário e índice, preserva o resto e us
   assert.equal(fs.readFileSync(path.join(vaultDir, "Seazone.md"), "utf8"), "hub intocável");
   assert.equal(fs.readFileSync(path.join(vaultDir, ".sync-backup", "2026-10-21", "Projetos", "Pessoais", "PokeSurvivors.md"), "utf8").includes("estado velho"), true);
 
-  const diary = fs.readFileSync(path.join(vaultDir, "Diário", "2026-10-20.md"), "utf8");
-  assert.match(diary, /Criou o menu de pausa/);
-  assert.match(diary, /Uso de memória do PC/);
-  assert.match(fs.readFileSync(path.join(vaultDir, "Projetos.md"), "utf8"), /PokeSurvivors/);
+  assert.equal(fs.existsSync(path.join(vaultDir, "Diário")), false);
+  assert.match(text, /## Histórico\n### Outubro de 2026\n- \*\*20\/10 \(ter\)\*\*\n  - Criou o menu de pausa\n  - Mudou: Pausa com P → Pausa com Esc/);
+  assert.doesNotMatch(text, /auto:tarefas/, "sem agenda não há lista de tarefas");
+  const index = fs.readFileSync(path.join(vaultDir, "Projetos.md"), "utf8");
+  assert.match(index, /PokeSurvivors/);
+  assert.match(index, /## Sessões avulsas[\s\S]*20\/10 — Uso de memória do PC/);
+  assert.ok(fs.existsSync(path.join(vaultDir, "Projetos", "Tarefas.base")));
 
   const second = await runVault(options);
   assert.equal(prompts.length, 1, "não chama a IA de novo para o mesmo registro");
@@ -138,7 +141,7 @@ test("ao bater no limite de uso, para de chamar a IA e deixa o resto pendente", 
   assert.equal(result.failed, 1);
   assert.equal(result.pending, 1);
   assert.equal(result.limitHit, true);
-  assert.match(fs.readFileSync(path.join(root, "vault", "Diário", "2026-10-21.md"), "utf8"), /resumo pendente: limite de uso do Claude/);
+  assert.equal(fs.existsSync(path.join(root, "vault", "Diário")), false);
 });
 
 test("rodada leva tarefas abertas à IA, fecha a feita e sugere a nova na agenda", async () => {
@@ -163,6 +166,91 @@ test("rodada leva tarefas abertas à IA, fecha a feita e sugere a nova na agenda
   assert.equal(agenda.entries.find(e => e.id === "sync-aberta").status, "feita");
   assert.equal(agenda.entries.find(e => e.status === "sugerida").text, "Testar o menu no celular");
   assert.equal(agenda.projects[0].id, "pessoais/pokesurvivors");
+
+  const tasksDir = path.join(root, "vault", "Projetos", "Pessoais", "PokeSurvivors", "Tarefas");
+  const suggested = fs.readFileSync(path.join(tasksDir, "Testar o menu no celular.md"), "utf8");
+  assert.match(suggested, /\nstatus: sugerida\n/);
+  assert.match(suggested, /\nprojeto: "\[\[Projetos\/Pessoais\/PokeSurvivors\|PokeSurvivors\]\]"\n/);
+  assert.match(suggested, /## Contexto\nAbre com Esc\./);
+  const closed = fs.readFileSync(path.join(tasksDir, "Criar o menu de pausa.md"), "utf8");
+  assert.match(closed, /\nstatus: feita\n/);
+  assert.match(closed, /concluída pela rodada: Menu criado\./);
+  const project = fs.readFileSync(path.join(root, "vault", "Projetos", "Pessoais", "PokeSurvivors.md"), "utf8");
+  assert.match(project, /### Abertas \(1\)\n- \[\[Projetos\/Pessoais\/PokeSurvivors\/Tarefas\/Testar o menu no celular\|Testar o menu no celular\]\]/);
+  assert.match(project, /  - Concluiu \[\[Projetos\/Pessoais\/PokeSurvivors\/Tarefas\/Criar o menu de pausa\|Criar o menu de pausa\]\]/);
+  assert.match(fs.readFileSync(path.join(root, "vault", "Projetos.md"), "utf8"), /PokeSurvivors\]\] \| 2026-10-20 \| 1 \|/);
+});
+
+test("nota antiga do projeto perde os links de dia e ganha tarefas e histórico antes das suas notas", async () => {
+  const { root, projects } = makeProjectsDir();
+  const vaultDir = path.join(root, "vault");
+  const note = path.join(vaultDir, "Projetos", "Pessoais", "PokeSurvivors.md");
+  fs.mkdirSync(path.dirname(note), { recursive: true });
+  fs.writeFileSync(note, [
+    "---", "tipo: projeto", "---", "# PokeSurvivors", "",
+    "<!-- auto:estado -->", "velho", "<!-- /auto:estado -->", "",
+    "<!-- auto:onde -->", "velho", "<!-- /auto:onde -->", "",
+    "<!-- auto:recente -->", "## Últimos dias", "- [[Diário/2026-10-19|19/10]]: algo", "<!-- /auto:recente -->", "",
+    "<!-- auto:sessoes -->", "velho", "<!-- /auto:sessoes -->", "",
+    "## Minhas notas", "não apagar isto", ""
+  ].join("\n"));
+  const agendaFile = path.join(root, "agenda-data.json");
+  fs.writeFileSync(agendaFile, JSON.stringify({ entries: [], reports: [] }));
+  await runVault({ projectsDir: projects, vaultDir, dataDir: path.join(root, "data"), agendaFile, config, since: "2026-09-01", until: "2026-10-21", runner: async () => fakeSummary("2026-10-20"), today: "2026-10-21" });
+
+  const text = fs.readFileSync(note, "utf8");
+  assert.ok(!text.includes("Diário"));
+  assert.ok(!text.includes("auto:recente"));
+  const order = ["auto:estado", "auto:onde", "auto:tarefas", "auto:historico", "auto:sessoes", "## Minhas notas"].map(mark => text.indexOf(mark));
+  assert.ok(order.every((at, i) => at !== -1 && (i === 0 || at > order[i - 1])), `ordem dos blocos: ${order}`);
+  assert.match(text, /## Minhas notas\nnão apagar isto\n$/);
+});
+
+test("só regravar o vault: não lê sessões, não chama a IA, não grava a agenda e segue o app", async () => {
+  const { root, projects } = makeProjectsDir();
+  const vaultDir = path.join(root, "vault");
+  const dataDir = path.join(root, "data");
+  const agendaFile = path.join(root, "agenda-data.json");
+  fs.writeFileSync(agendaFile, JSON.stringify({ entries: [], reports: [] }));
+  const base = { projectsDir: projects, vaultDir, dataDir, agendaFile, config, today: "2026-10-21" };
+  await runVault({ ...base, since: "2026-09-01", until: "2026-10-21", runner: async () => fakeSummary("2026-10-20") });
+
+  const tasksDir = path.join(vaultDir, "Projetos", "Pessoais", "PokeSurvivors", "Tarefas");
+  const file = path.join(tasksDir, "Testar o menu no celular.md");
+  fs.appendFileSync(file, "minha anotação\n");
+  // No app: a tarefa foi marcada feita e reescrita; outra foi sugerida e já descartada.
+  const agenda = JSON.parse(fs.readFileSync(agendaFile, "utf8"));
+  const task = agenda.entries.find(e => e.source === "sync");
+  Object.assign(task, { status: "feita", text: "Testar o menu no celular e no tablet", updatedAt: "2026-10-22T15:00:00.000Z" });
+  agenda.entries.push({ ...task, id: "sync-descartada", text: "Ideia ruim", status: "descartada", fingerprint: "x" });
+  fs.writeFileSync(agendaFile, JSON.stringify(agenda));
+  const before = fs.readFileSync(agendaFile, "utf8");
+
+  const result = await runVault({ ...base, projectsDir: path.join(root, "nao-existe"), renderOnly: true, runner: async () => { throw new Error("não devia chamar a IA"); } });
+
+  assert.equal(result.summarized, 0);
+  assert.equal(fs.readFileSync(agendaFile, "utf8"), before);
+  assert.deepEqual(fs.readdirSync(tasksDir), ["Testar o menu no celular.md"]);
+  const text = fs.readFileSync(file, "utf8");
+  assert.match(text, /\nstatus: feita\n/);
+  assert.match(text, /\ntitulo: Testar o menu no celular e no tablet\n/);
+  assert.match(text, /- 22\/10\/2026 — marcada como feita no app/);
+  assert.match(text, /minha anotação/);
+  assert.match(fs.readFileSync(path.join(vaultDir, "Projetos", "Pessoais", "PokeSurvivors.md"), "utf8"), /### Concluídas \(1\)/);
+});
+
+test("sessões avulsas acumulam entre rodadas e a Base criada não é sobrescrita", async () => {
+  const { root, projects } = makeProjectsDir();
+  const vaultDir = path.join(root, "vault");
+  const dataDir = path.join(root, "data");
+  const base = { projectsDir: projects, vaultDir, dataDir, config, runner: async () => fakeSummary("x") };
+  await runVault({ ...base, since: "2026-10-20", until: "2026-10-20", today: "2026-10-21" });
+  const baseFile = path.join(vaultDir, "Projetos", "Tarefas.base");
+  fs.writeFileSync(baseFile, "minha visão");
+  addPokeDay(projects, "s3", "2026-10-21T13:00:00.000Z", "Agora o placar");
+  await runVault({ ...base, since: "2026-10-21", until: "2026-10-21", today: "2026-10-22" });
+  assert.match(fs.readFileSync(path.join(vaultDir, "Projetos.md"), "utf8"), /20\/10 — Uso de memória do PC/);
+  assert.equal(fs.readFileSync(baseFile, "utf8"), "minha visão");
 });
 
 test("dry-run grava a agenda só na prévia", async () => {
@@ -195,7 +283,9 @@ test("teto da rodada: termina o dia em curso, não começa outro e deixa o resto
   assert.equal(result.limitHit, false);
   assert.deepEqual(result.pendingDays, ["2026-10-21"]);
   assert.deepEqual(result.failedDays, []);
-  assert.match(fs.readFileSync(path.join(root, "vault", "Diário", "2026-10-21.md"), "utf8"), /resumo pendente: teto de resumos da rodada/);
+  const note = fs.readFileSync(path.join(root, "vault", "Projetos", "Pessoais", "PokeSurvivors.md"), "utf8");
+  assert.match(note, /Ainda sem resumo: 21\/10/);
+  assert.match(note, /\*\*21\/10 \(qua\)\*\*\n  - _resumo pendente: teto de resumos da rodada/);
 });
 
 test("rodada separa dias que falharam dos que ficaram pendentes", async () => {
