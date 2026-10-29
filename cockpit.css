@@ -205,6 +205,20 @@ code { font: 12px Consolas, monospace; background: #f0ebe1; padding: 2px 7px; bo
 .falha { background: var(--surface); border: 1px solid #eec2bd; border-radius: var(--raio); padding: 16px; box-shadow: var(--sombra); }
 .falha h2 { margin: 0 0 6px; font-size: 16px; color: var(--problema); }
 
+/* Responder pela tela: a mensagem inteira, a caixa de resposta e o aviso do que espera o ciclo */
+.mensagem-completa { margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 10px;
+  background: var(--surface); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.5; max-height: 38vh; overflow-y: auto; }
+.resposta-painel { margin-top: 12px; }
+.resposta-texto { display: block; width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 10px; font: inherit; font-size: 13px; background: var(--surface-2); color: var(--ink); }
+.resposta-texto:focus { outline: 2px solid rgba(39, 95, 136, .3); border-color: var(--blue); background: var(--surface); }
+.botao.perigo { background: var(--surface); color: var(--red); border: 1px solid rgba(163, 63, 63, .35); }
+.botao.perigo[data-confirmar] { background: var(--red); color: #fff; border-color: var(--red); }
+.mini.principal { border-color: var(--ink); }
+.espera-ciclo { flex-shrink: 0; white-space: nowrap; font-size: 11px; font-weight: 600; color: #9a6812; background: rgba(201, 138, 28, .12);
+  border-radius: 999px; padding: 1px 8px; }
+.dica-resposta { margin: 6px 0 0; font-size: 12px; color: #9a6812; }
+
 /* Tela estreita: uma coluna por vez, escolhida nas abas de coluna */
 @media (max-width: 900px) {
   .topo { padding: 8px 12px; }

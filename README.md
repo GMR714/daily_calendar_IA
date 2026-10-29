@@ -36,6 +36,7 @@ O servidor carrega `.env` automaticamente, quando existir. `.env.example` lista 
 ```dotenv
 PORT=8787
 HOST=127.0.0.1
+AGENDA_HOSTS=
 TZ=America/Sao_Paulo
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=gemma4:31b-cloud
@@ -110,6 +111,8 @@ Mensagens normais geram propostas, como na interface. Uma proposta antiga e recu
 
 O item **Cockpit** do menu lateral abre `/cockpit`, uma tela com o que os agentes do Claude Code estao fazendo, o que espera sua decisao e as rotinas agendadas. Os dados vem do Copiloto (`cli.py cockpit --json`). A aba **Painel** junta o semaforo (problema, atencao, bem, sem sinal), o que olhar agora, os agentes com o contexto de cada um, a fila **Voce** e as rotinas na linha das 24 h. **Mapa** desenha os agentes vivos do notebook, com a orquestradora ligada aos workers dela, e as rotinas na nuvem. **Hoje** lista as sessoes do dia por frente. Os numeros do topo filtram a tela; `/` busca, `r` atualiza e `Esc` fecha o detalhe. **Levar para a agenda** cria uma tarefa de 30 minutos e prioridade alta para hoje, sem repetir o mesmo item.
 
+Na fila **Voce**, **Revisar** abre o rascunho inteiro, com **Aprovar e enviar**, **Pedir ajuste** e **Descartar**. **Responder** manda sua resposta a uma tarefa, e a gaveta traz o link da nota no Obsidian. A resposta vai para a caixa de entrada do Copiloto (`cli.py entrada gravar`), e o proximo ciclo trata pelo mesmo caminho do `ok R-NN` da DM. Ate la, o item mostra "espera o ciclo". **Rodar agora**, no topo, pede um ciclo na hora; ele espera a vez e nunca derruba o que esta rodando. A tela nao envia nada: quem envia e a orquestradora.
+
 O servidor roda o Copiloto quando a tela pede e guarda a leitura por 45 s; a tela atualiza sozinha a cada 30 s. Sem o Copiloto, so a tela do cockpit mostra o erro, e a agenda continua igual. O caminho padrao e o abaixo; mude no `.env` se o Copiloto estiver em outra pasta.
 
 ```dotenv
@@ -123,6 +126,7 @@ COCKPIT_PYTHON=py
 - Cada gravacao tem revisao e escrita atomica. As 30 versoes anteriores ficam em `.agenda-backups/`.
 - Arquivos corrompidos causam erro explicito; nao sao substituidos por uma agenda vazia.
 - A sincronizacao compara a versao anterior, a edicao local e a versao do servidor. Alteracoes independentes sao combinadas; conflitos ficam visiveis, sem sobrescrever em silencio.
+- O servidor so atende quem chega por `localhost`, `127.0.0.1` ou `[::1]`. Um site que aponte o proprio nome para este computador (DNS rebinding) recebe 403; para abrir a agenda por outro nome, inclua-o em `AGENDA_HOSTS`. Pedidos que alteram dados precisam vir da propria agenda, e as acoes que fazem este computador agir (abrir o painel, falar com o Copiloto) so valem vindas dele.
 - O navegador guarda rascunhos e alteracoes pendentes durante falhas de conexao. Uma copia local anterior pode ser exportada em Ajustes.
 - Para restaurar manualmente um backup do servidor, pare o servidor, preserve o arquivo atual e substitua `agenda-data.json` por uma copia valida da pasta de backups. Reinicie e use a versao do servidor no navegador se houver conflito.
 - `.env`, dados, backups, logs e cursor do Telegram ficam fora do Git.

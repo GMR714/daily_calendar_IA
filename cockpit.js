@@ -122,6 +122,82 @@
     navigator.clipboard.writeText(texto).then(() => toast(mensagem), () => toast("Não consegui copiar; selecione o texto e copie."));
   }
 
+  // Resposta a um item da fila Voce: vai para a caixa de entrada do Copiloto, que o proximo ciclo trata
+  // (o mesmo caminho do "ok R-NN" da DM). Nada sai daqui direto para ninguem.
+  const digitado = new Map();
+  async function responder(item, acao, texto, botao) {
+    const rotulo = botao.textContent;
+    botao.disabled = true;
+    botao.textContent = "Gravando…";
+    try {
+      const r = await fetch("/api/copiloto/responder", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao, item: item.id, texto }) });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "O Copiloto não aceitou a resposta.");
+      item.resposta = { acao, em: new Date().toISOString(), origem: "tela" };
+      digitado.delete(item.id);
+      toast(corpo.entrada && corpo.entrada.repetida ? "Essa resposta já estava gravada." : "Resposta gravada: o Copiloto trata no próximo ciclo.",
+        ["Para ser agora, use Rodar agora, no topo."]);
+      renderizar();
+    } catch (erro) {
+      botao.disabled = false;
+      botao.textContent = rotulo;
+      toast(erro.message);
+    }
+  }
+  async function rodarAgora() {
+    const botao = $("rodarAgora");
+    botao.disabled = true;
+    botao.textContent = "Pedindo…";
+    try {
+      const r = await fetch("/api/copiloto/rodar", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "Não consegui pedir o ciclo.");
+      toast(corpo.texto || "Ciclo pedido.");
+    } catch (erro) {
+      toast(erro.message);
+    } finally {
+      botao.disabled = false;
+      marcarRodar();
+    }
+  }
+  function marcarRodar() {
+    const n = ((resposta && resposta.dados && resposta.dados.voce && resposta.dados.voce.itens) || []).filter(i => i.resposta).length;
+    $("rodarAgora").textContent = n ? `Rodar agora · ${n}` : "Rodar agora";
+    $("rodarAgora").title = `${n ? `${n} resposta${n > 1 ? "s" : ""} esperando o ciclo. ` : ""}Pede um ciclo do Copiloto agora: ele espera a vez e nunca derruba o que está rodando.`;
+  }
+  // Aprovar sai em nome do Gabriel: so na gaveta, com a mensagem inteira a vista. Com um ajuste escrito, aprovar fica
+  // travado (o texto seria ignorado); descartar pede um segundo clique no proprio botao.
+  function painelResposta(i, acoes) {
+    const rascunho = i.tipo === "dar ok";
+    const caixa = h("textarea", { class: "resposta-texto", rows: "3", maxlength: "4000",
+      placeholder: rascunho ? "Para pedir ajuste: o que mudar na mensagem" : "Sua resposta para o Copiloto (ex.: pode seguir com a opção B)" });
+    caixa.value = digitado.get(i.id) || "";
+    const aprovar = acoes.includes("aprovar") ? h("button", { class: "botao pequeno", type: "button", title: "Envia a mensagem como está, em seu nome",
+      onclick: ev => responder(i, "aprovar", "", ev.currentTarget) }, "Aprovar e enviar") : null;
+    const dica = aprovar ? h("p", { class: "dica-resposta", hidden: true }, "Com um ajuste escrito, a mensagem não sai como está: use Pedir ajuste ou apague o texto.") : null;
+    const travarAprovar = () => { if (aprovar) { aprovar.disabled = Boolean(caixa.value.trim()); dica.hidden = !aprovar.disabled; } };
+    caixa.addEventListener("input", () => { digitado.set(i.id, caixa.value); travarAprovar(); });
+    travarAprovar();
+    const comTexto = (acao, ev) => {
+      const texto = caixa.value.trim();
+      if (!texto) { caixa.focus(); return toast(rascunho ? "Escreva o que mudar na mensagem." : "Escreva a resposta."); }
+      responder(i, acao, texto, ev.currentTarget);
+    };
+    const descartar = acoes.includes("descartar") ? h("button", { class: "botao pequeno perigo", type: "button", onclick: ev => {
+      const b = ev.currentTarget;
+      if (b.dataset.confirmar) return responder(i, "descartar", "", b);
+      b.dataset.confirmar = "1";
+      b.textContent = "Confirmar descarte";
+      setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.confirmar; b.textContent = "Descartar"; } }, 4000);
+    } }, "Descartar") : null;
+    return h("div", { class: "resposta-painel" }, caixa, dica, h("div", { class: "acoes" },
+      aprovar,
+      acoes.includes("ajuste") ? h("button", { class: "botao pequeno secundario", type: "button", onclick: ev => comTexto("responder", ev) }, "Pedir ajuste") : null,
+      acoes.includes("responder") ? h("button", { class: "botao pequeno", type: "button", onclick: ev => comTexto("responder", ev) }, "Responder") : null,
+      descartar));
+  }
+
   // ------------------------------------------------------------------ estado geral
   function marcarVivo() {
     const vivo = $("vivo");
@@ -174,7 +250,10 @@
       renderRotinas(V.filtrar(d, { busca: ui.busca, cor: ui.cor, segmento: ui.segmento }).rotinas, f.rotinas);
     } else if (ui.aba === "mapa") renderMapa(d, f);
     else renderHoje(d);
-    if (gaveta) abrirGaveta(gaveta.tipo, gaveta.id, true);
+    marcarRodar();
+    // redesenhar a gaveta no meio de uma resposta apagaria o que ele esta digitando
+    const digitando = document.activeElement && document.activeElement.tagName === "TEXTAREA" && $("gaveta").contains(document.activeElement);
+    if (gaveta && !digitando) abrirGaveta(gaveta.tipo, gaveta.id, true);
   }
 
   function renderKpis(d) {
@@ -233,21 +312,24 @@
     $("voce").replaceChildren(...(lista.length ? lista.map(linhaFila) : [h("p", { class: "vazio" }, v.total ? "Nada com esse filtro." : "Nada esperando você.")]));
   }
   const idadeDoItem = i => (i.dias === null || i.dias === undefined ? "" : i.dias === 0 ? "hoje" : `há ${i.dias} d`);
-  const copiarComando = i => copiar(i.comando, `"${i.comando}" copiado. Mande na sua DM para o Copiloto enviar.`);
-  // Linha compacta: tipo, titulo e idade; o texto em uma linha e as duas acoes. O texto inteiro fica na gaveta.
+  // Linha compacta (2 linhas): tipo, titulo e idade; o texto e as acoes. As acoes ficam sempre embaixo, para o titulo
+  // ter a linha inteira. Responder abre a gaveta, com o texto inteiro.
   function linhaFila(i) {
     const levado = naAgenda.has(i.id);
     const abrir = () => abrirGaveta("voce", i.id);
+    const espera = V.rotuloDaResposta(i);
     const acoes = [
-      i.comando ? h("button", { class: "mini", type: "button", title: `Copia "${i.comando}" para você mandar na sua DM ao Copiloto`,
-        onclick: e => { e.stopPropagation(); copiarComando(i); } }, i.comando) : null,
+      espera ? h("span", { class: "espera-ciclo", title: "O Copiloto trata no próximo ciclo; Rodar agora, no topo, adianta" }, espera)
+        : V.acoesDoItem(i).length ? h("button", { class: "mini principal", type: "button",
+          title: i.tipo === "dar ok" ? "Ler a mensagem inteira e aprovar, pedir ajuste ou descartar" : "Responder ao Copiloto",
+          onclick: e => { e.stopPropagation(); abrir(); } }, i.tipo === "dar ok" ? "Revisar" : "Responder") : null,
       h("button", { class: `mini${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
         onclick: e => { e.stopPropagation(); levarParaAgenda(i, e.currentTarget); } }, levado ? "✓ agenda" : "+ agenda")];
     return h("article", { class: `linha${i.velho ? " cor-atencao" : ""}`, tabindex: "0", role: "button", title: i.texto || i.titulo,
       onclick: abrir, onkeydown: e => { if (e.key === "Enter" && e.target === e.currentTarget) abrir(); } },
       h("div", { class: "linha-1" }, h("span", { class: "tipo" }, NOME_TIPO[i.tipo] || i.tipo), h("b", {}, i.titulo),
-        h("span", { class: `quando${i.velho ? " velha" : ""}` }, idadeDoItem(i)), i.texto ? null : acoes),
-      i.texto ? h("div", { class: "linha-2" }, h("span", { class: "texto" }, i.texto), acoes) : null);
+        h("span", { class: `quando${i.velho ? " velha" : ""}` }, idadeDoItem(i))),
+      h("div", { class: "linha-2" }, h("span", { class: "texto" }, i.texto || ""), acoes));
   }
 
   function renderRotinas(rotinas, semSegmento) {
@@ -395,11 +477,16 @@
       const i = ((d.voce && d.voce.itens) || []).find(x => x.id === id);
       if (!i) return fecharGaveta();
       const levado = naAgenda.has(i.id);
+      const acoes = V.acoesDoItem(i);
+      const espera = V.rotuloDaResposta(i);
       corpo = [h("p", { class: "eyebrow" }, `${NOME_TIPO[i.tipo] || i.tipo} · ${i.id}`), h("h3", {}, i.titulo),
-        h("dl", { class: "detalhes" }, linha("O que é", i.texto), linha("Esperando", idadeDoItem(i)),
-          linha("Tarefa", i.tarefa && i.tarefa !== i.id ? i.tarefa : ""), linha("Como responder", i.comando ? h("code", {}, i.comando) : "")),
+        espera ? h("p", { class: "estado estado-atencao" }, espera) : null,
+        i.mensagem ? h("div", { class: "mensagem-completa", tabindex: "0", "aria-label": "Mensagem que vai sair em seu nome" }, i.mensagem) : null,
+        h("dl", { class: "detalhes" }, i.mensagem ? null : linha("O que é", i.texto), linha("Esperando", idadeDoItem(i)),
+          linha("Tarefa", i.tarefa && i.tarefa !== i.id ? i.tarefa : ""), linha("Pela DM", i.comando ? h("code", {}, i.comando) : ""),
+          linha("Nota", V.linkObsidian(i) ? h("a", { href: V.linkObsidian(i) }, "Abrir a nota no Obsidian") : "")),
+        acoes.length ? painelResposta(i, acoes) : null,
         h("div", { class: "acoes" },
-          i.comando ? h("button", { class: "botao pequeno", type: "button", onclick: () => copiarComando(i) }, `Copiar ${i.comando}`) : null,
           h("button", { class: `botao pequeno secundario${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
             onclick: ev => levarParaAgenda(i, ev.currentTarget) }, levado ? "✓ Na agenda" : "Levar para a agenda"))];
     }
@@ -424,6 +511,7 @@
   document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
   $("busca").addEventListener("input", debounce(e => { ui.busca = e.target.value; renderizar(); }, 120));
   $("atualizar").addEventListener("click", () => carregar(true));
+  $("rodarAgora").addEventListener("click", rodarAgora);
   $("fecharGaveta").addEventListener("click", fecharGaveta);
   $("veu").addEventListener("click", fecharGaveta);
   document.addEventListener("keydown", e => {
