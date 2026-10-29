@@ -14,7 +14,7 @@ Abra http://localhost:8787. Nao e necessario instalar dependencias para executar
 
 ### Painel Flutuante
 
-No Windows, execute `iniciar-painel.cmd` para abrir um painel compacto, sempre por cima das outras janelas. Arraste qualquer lateral ou canto para redimensionar. O botao de circulo no cabecalho alterna a opacidade do fundo entre 100%, 24% e sem fundo; o botao **A** alterna o texto entre preto, branco e cinza neutro opacos. O cinza foi escolhido para equilibrar o contraste sobre fundos brancos e pretos; sobre tons intermediarios, use preto ou branco conforme a leitura. No modo branco, o fundo ganha contraste escuro quando visivel. Tamanho, posicao, transparencia e cor do texto ficam salvos em `%LOCALAPPDATA%\DailyCalendarIA\overlay-settings.json`. A aba **Hoje** mostra horarios e cores das metas, atualiza a cada minuto e permite concluir o bloco exato. A aba **Notas** salva automaticamente um bloco de notas em `%LOCALAPPDATA%\DailyCalendarIA\notes.txt`.
+No Windows, clique em **Cantinho** no menu lateral da agenda (ou execute `iniciar-painel.cmd`) para abrir um painel compacto, sempre por cima das outras janelas. Arraste qualquer lateral ou canto para redimensionar. O botao de circulo no cabecalho alterna a opacidade do fundo entre 100%, 24% e sem fundo; o botao **A** alterna o texto entre preto, branco e cinza neutro opacos. O cinza foi escolhido para equilibrar o contraste sobre fundos brancos e pretos; sobre tons intermediarios, use preto ou branco conforme a leitura. No modo branco, o fundo ganha contraste escuro quando visivel. Tamanho, posicao, transparencia e cor do texto ficam salvos em `%LOCALAPPDATA%\DailyCalendarIA\overlay-settings.json`. A aba **Hoje** mostra horarios e cores das metas, atualiza a cada minuto e permite concluir o bloco exato. A aba **Notas** salva automaticamente um bloco de notas em `%LOCALAPPDATA%\DailyCalendarIA\notes.txt`.
 
 O Pomodoro fica visivel no topo, com iniciar, pausar e reiniciar. Ele alterna 25 minutos de foco com 5 de pausa, oferece uma pausa de 15 minutos a cada quatro focos e avisa por som e notificacao quando a fase termina. Continua contando quando o painel esta minimizado; ao reabrir, recupera o tempo salvo. Os avisos dependem de o painel estar aberto.
 
@@ -108,7 +108,7 @@ Mensagens normais geram propostas, como na interface. Uma proposta antiga e recu
 
 ## Cockpit Da IA
 
-O link **Cockpit da IA** na barra lateral abre `/cockpit`, uma tela com o que os agentes do Claude Code estao fazendo, o que espera sua decisao e as rotinas agendadas. Os dados vem do Copiloto (`cli.py cockpit --json`). A aba **Painel** junta o semaforo (problema, atencao, bem, sem sinal), o que olhar agora, os agentes com o contexto de cada um, a fila **Voce** e as rotinas na linha das 24 h. **Mapa** desenha os agentes vivos do notebook, com a orquestradora ligada aos workers dela, e as rotinas na nuvem. **Hoje** lista as sessoes do dia por frente. Os numeros do topo filtram a tela; `/` busca, `r` atualiza e `Esc` fecha o detalhe. **Levar para a agenda** cria uma tarefa de 30 minutos e prioridade alta para hoje, sem repetir o mesmo item.
+O item **Cockpit** do menu lateral abre `/cockpit`, uma tela com o que os agentes do Claude Code estao fazendo, o que espera sua decisao e as rotinas agendadas. Os dados vem do Copiloto (`cli.py cockpit --json`). A aba **Painel** junta o semaforo (problema, atencao, bem, sem sinal), o que olhar agora, os agentes com o contexto de cada um, a fila **Voce** e as rotinas na linha das 24 h. **Mapa** desenha os agentes vivos do notebook, com a orquestradora ligada aos workers dela, e as rotinas na nuvem. **Hoje** lista as sessoes do dia por frente. Os numeros do topo filtram a tela; `/` busca, `r` atualiza e `Esc` fecha o detalhe. **Levar para a agenda** cria uma tarefa de 30 minutos e prioridade alta para hoje, sem repetir o mesmo item.
 
 O servidor roda o Copiloto quando a tela pede e guarda a leitura por 45 s; a tela atualiza sozinha a cada 30 s. Sem o Copiloto, so a tela do cockpit mostra o erro, e a agenda continua igual. O caminho padrao e o abaixo; mude no `.env` se o Copiloto estiver em outra pasta.
 
@@ -163,3 +163,5 @@ Teste visual opcional: instale Playwright em um ambiente de desenvolvimento ou a
 - `cockpit-source.js`: leitura do Copiloto para o cockpit, com cache e erro legivel.
 - `cockpit-view.js`: regras puras da tela do cockpit (grupos, filtros, contexto, o que mudou, texto sem markdown).
 - `cockpit.html`, `cockpit.js`, `cockpit.css`: tela Cockpit da IA.
+- `nav-rail.js`, `nav-rail.css`: menu lateral unico da agenda e do cockpit (Agenda, Checklist, Cockpit, Cantinho, Planos, Ajustes).
+- `agenda-layout.js`: escala do calendario pela altura da tela, para o dia caber sem rolar.
