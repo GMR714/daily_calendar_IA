@@ -181,6 +181,30 @@ test("rodada leva tarefas abertas à IA, fecha a feita e sugere a nova na agenda
   assert.match(fs.readFileSync(path.join(root, "vault", "Projetos.md"), "utf8"), /PokeSurvivors\]\] \| 2026-10-20 \| 1 \|/);
 });
 
+test("rodada atualiza a tarefa aberta que o dia continuou, em vez de sugerir outra", async () => {
+  const { root, projects } = makeProjectsDir();
+  const agendaFile = path.join(root, "agenda-data.json");
+  const open = { id: "sync-aberta", type: "task", source: "sync", status: "confirmada", text: "Criar o menu de pausa", context: "Ainda sem menu.", projectId: "pessoais/pokesurvivors", origin: { day: "2026-10-19", area: "Pessoais", project: "PokeSurvivors" }, fingerprint: "pessoais/pokesurvivors::criar-o-menu-de-pausa", updatedAt: "2026-10-19T06:00:00.000Z" };
+  fs.writeFileSync(agendaFile, JSON.stringify({ entries: [open], reports: [], projects: [{ id: "pessoais/pokesurvivors", name: "PokeSurvivors", area: "Pessoais" }] }));
+
+  const prompts = [];
+  const runner = async prompt => {
+    prompts.push(prompt);
+    return { ...fakeSummary("2026-10-20"), tarefasNovas: [], tarefasAtualizadas: [{ id: "sync-aberta", feito: "Menu criado; falta o Esc.", contexto: "Menu abre com P; trocar para Esc." }] };
+  };
+  const result = await runVault({ projectsDir: projects, vaultDir: path.join(root, "vault"), dataDir: path.join(root, "data"), agendaFile, config, since: "2026-09-01", until: "2026-10-21", runner, today: "2026-10-21" });
+
+  assert.match(prompts[0], /\[sync-aberta\] Criar o menu de pausa — onde parou: Ainda sem menu\./);
+  assert.equal(result.tasksAdded, 0);
+  assert.equal(result.tasksUpdated, 1);
+  const agenda = JSON.parse(fs.readFileSync(agendaFile, "utf8"));
+  assert.equal(agenda.entries.filter(e => e.source === "sync").length, 1);
+  const note = fs.readFileSync(path.join(root, "vault", "Projetos", "Pessoais", "PokeSurvivors", "Tarefas", "Criar o menu de pausa.md"), "utf8");
+  assert.match(note, /## Contexto\nMenu abre com P; trocar para Esc\./);
+  assert.match(note, /- 20\/10\/2026 — avançou: Menu criado; falta o Esc\./);
+  assert.match(fs.readFileSync(path.join(root, "vault", "Projetos", "Pessoais", "PokeSurvivors.md"), "utf8"), /  - Avançou \[\[Projetos\/Pessoais\/PokeSurvivors\/Tarefas\/Criar o menu de pausa\|Criar o menu de pausa\]\]/);
+});
+
 test("nota antiga do projeto perde os links de dia e ganha tarefas e histórico antes das suas notas", async () => {
   const { root, projects } = makeProjectsDir();
   const vaultDir = path.join(root, "vault");

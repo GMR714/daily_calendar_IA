@@ -92,7 +92,7 @@ test("apaga backups com mais de 14 dias", () => {
 const POKE = "Projetos/Pessoais/PokeSurvivors/Tarefas";
 
 function task(overrides = {}) {
-  return { id: "sync-a", title: "Testar no celular", status: "sugerida", area: "Pessoais", project: "PokeSurvivors", context: "Abre com Esc.", createdDay: "2026-10-20", changedDay: "2026-10-20", doneDay: null, doneAuto: false, evidence: null, deadline: null, ...overrides };
+  return { id: "sync-a", title: "Testar no celular", status: "sugerida", area: "Pessoais", project: "PokeSurvivors", context: "Abre com Esc.", createdDay: "2026-10-20", changedDay: "2026-10-20", doneDay: null, doneAuto: false, evidence: null, deadline: null, progress: [], ...overrides };
 }
 
 test("blocos do projeto: estado, locais e sessões, sem link para dia", () => {
@@ -215,6 +215,26 @@ test("nota da tarefa: propriedades, contexto e registro com datas", () => {
   assert.match(text, /## Contexto\nAbre com Esc\./);
   assert.match(text, /- 20\/10\/2026 — sugerida pela rodada, a partir das sessões do dia\n- 21\/10\/2026 — concluída pela rodada: Menu testado no celular\./);
   assert.match(text, /## Minhas notas/);
+});
+
+test("nota da tarefa: os avanços entram no registro em ordem de data, antes da conclusão", () => {
+  const text = taskNoteText(null, task({
+    status: "feita", doneDay: "2026-10-23", doneAuto: true, evidence: "Testado nos dois.",
+    progress: [{ day: "2026-10-21", text: "Testou no Android." }, { day: "2026-10-22", text: "Achou o iPhone do Fulano." }]
+  }));
+  assert.match(text, /- 20\/10\/2026 — sugerida[^\n]*\n- 21\/10\/2026 — avançou: Testou no Android\.\n- 22\/10\/2026 — avançou: Achou o iPhone do Fulano\.\n- 23\/10\/2026 — concluída pela rodada: Testado nos dois\./);
+});
+
+test("projeto: avanço da tarefa aparece no dia do histórico e na lista de abertas", () => {
+  const blocks = renderProjectBlocks({
+    summary: { estadoAtual: "E.", ondeEstaCadaCoisa: [] },
+    history: [{ day: "2026-10-21", summary: { feitoNoDia: ["Testou no Android."], mudancas: [] } }],
+    sessions: [],
+    lastDay: "2026-10-21",
+    tasks: [task({ status: "confirmada", note: `${POKE}/Testar no celular`, progress: [{ day: "2026-10-21", text: "Testou no Android." }] })]
+  });
+  assert.match(blocks.historico, /- \*\*21\/10 \(qua\)\*\*\n  - Testou no Android\.\n  - Avançou \[\[Projetos\/Pessoais\/PokeSurvivors\/Tarefas\/Testar no celular\|Testar no celular\]\]/);
+  assert.match(blocks.tarefas, /Testar no celular\]\] — confirmada · avançou em 21\/10/);
 });
 
 test("nota da tarefa: o que você escreveu fica e o status acompanha o app", () => {

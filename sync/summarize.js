@@ -3,7 +3,11 @@ const { spawn } = require("child_process");
 // Subir a versão invalida o cache de resumos e refaz tudo, gastando o limite de uso da
 // assinatura. Ajuste fino de prompt sem mudar o formato não precisa subir.
 const PROMPT_VERSION = 2;
-const LIMITS = { ondeEstaCadaCoisa: 12, feitoNoDia: 6, mudancas: 6, tarefasNovas: 6, tarefasConcluidas: 20 };
+// tarefasAtualizadas entrou em 29/10 sem subir a versão: resumo antigo sem o campo continua
+// valendo, e resposta sem ele vale como lista vazia (OPTIONAL).
+const LIMITS = { ondeEstaCadaCoisa: 12, feitoNoDia: 6, mudancas: 6, tarefasNovas: 6, tarefasConcluidas: 20, tarefasAtualizadas: 10 };
+const OPTIONAL = new Set(["tarefasAtualizadas"]);
+const OPEN_TASK_CONTEXT_CHARS = 300;
 
 const SYSTEM_PROMPT = [
   "Você resume o trabalho de um dia num projeto do Gabriel a partir do registro das sessões dele com o Claude Code.",
@@ -26,14 +30,28 @@ const SUMMARY_SCHEMA = {
         required: ["titulo", "contexto", "prazo"]
       }
     },
-    tarefasConcluidas: { type: "array", items: { type: "object", properties: { id: { type: "string" }, evidencia: { type: "string" } }, required: ["id", "evidencia"] } }
+    tarefasConcluidas: { type: "array", items: { type: "object", properties: { id: { type: "string" }, evidencia: { type: "string" } }, required: ["id", "evidencia"] } },
+    tarefasAtualizadas: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: { type: "string" }, feito: { type: "string" }, contexto: { type: "string" } },
+        required: ["id", "feito", "contexto"]
+      }
+    }
   },
-  required: ["estadoAtual", "ondeEstaCadaCoisa", "feitoNoDia", "mudancas", "tarefasNovas", "tarefasConcluidas"]
+  required: ["estadoAtual", "ondeEstaCadaCoisa", "feitoNoDia", "mudancas", "tarefasNovas", "tarefasConcluidas", "tarefasAtualizadas"]
 };
+
+function clip(text, max) {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 function buildPrompt({ area, project, day, previousState, knownPlaces = [], openTasks = [], digestText }) {
   const places = knownPlaces.length ? knownPlaces.map(p => `- ${p.item}: ${p.local}`).join("\n") : "(nenhum ainda)";
-  const tasks = openTasks.length ? openTasks.map(t => `- [${t.id}] ${t.titulo}`).join("\n") : "(nenhuma)";
+  const tasks = openTasks.length
+    ? openTasks.map(t => `- [${t.id}] ${t.titulo}${t.contexto ? ` — onde parou: ${clip(t.contexto, OPEN_TASK_CONTEXT_CHARS)}` : ""}`).join("\n")
+    : "(nenhuma)";
   return [
     `Projeto: ${area} / ${project}`,
     `Dia: ${day}`,
@@ -52,8 +70,9 @@ function buildPrompt({ area, project, day, previousState, knownPlaces = [], open
     "- ondeEstaCadaCoisa: só locais concretos (pastas, repositórios, branches, PRs, arquivos de saída, documentos). Mantenha os já conhecidos que continuam válidos. No máximo 12.",
     "- feitoNoDia: 1 a 6 itens curtos do que foi de fato feito neste dia.",
     "- mudancas: só quando o dia contradiz o estado anterior (decisão trocada, arquivo movido, abordagem abandonada); antes e depois em uma frase cada. Vazio se nada mudou.",
-    "- tarefasNovas: próximos passos concretos que ficaram pendentes no fim do dia, cada um pequeno (até umas 2 horas). titulo no imperativo; contexto em 2 ou 3 frases (onde parou, por quê, onde estão os arquivos). Não inclua o que já foi feito nem o que já está nas tarefas abertas. No máximo 6. prazo só se o registro citar uma data (AAAA-MM-DD); senão null.",
+    "- tarefasNovas: próximos passos concretos que ficaram pendentes no fim do dia, cada um pequeno (até umas 2 horas). titulo no imperativo; contexto em 2 ou 3 frases (onde parou, por quê, onde estão os arquivos). Não inclua o que já foi feito nem o que já está nas tarefas abertas. Se o próximo passo continua uma tarefa aberta (mesma pendência, mesmo PR, mesmo arquivo, mesma pessoa), não crie tarefa nova: ponha a tarefa aberta em tarefasAtualizadas. No máximo 6. prazo só se o registro citar uma data (AAAA-MM-DD); senão null.",
     "- tarefasConcluidas: ids das tarefas abertas que o registro mostra como feitas, com a evidência em uma frase.",
+    "- tarefasAtualizadas: tarefas abertas que este dia fez andar sem concluir, ou cujo próximo passo mudou. id da tarefa; feito: uma frase do que andou nela neste dia (vazio se só o próximo passo mudou); contexto: 2 ou 3 frases de onde a tarefa está agora e o que falta, no lugar do contexto anterior. Não repita aqui a tarefa que foi para tarefasConcluidas. Vazio se nenhuma andou.",
     "- Trechos marcados como resumo automático da conversa são contexto de dias anteriores: use para entender, mas não conte como feito neste dia nem como mudança.",
     "",
     "Registro do dia:",
@@ -120,17 +139,20 @@ function validateSummary(summary) {
   const errors = [];
   if (!isText(summary.estadoAtual)) errors.push("estadoAtual vazio");
   for (const field of Object.keys(LIMITS)) {
+    if (OPTIONAL.has(field) && summary[field] === undefined) continue;
     if (!Array.isArray(summary[field])) errors.push(`${field} não é lista`);
   }
   if (Array.isArray(summary.feitoNoDia) && !summary.feitoNoDia.every(isText)) errors.push("feitoNoDia com item vazio");
   if (Array.isArray(summary.tarefasNovas) && !summary.tarefasNovas.every(t => t && isText(t.titulo))) errors.push("tarefasNovas sem titulo");
+  if (Array.isArray(summary.tarefasAtualizadas) && !summary.tarefasAtualizadas.every(t => t && isText(t.id))) errors.push("tarefasAtualizadas sem id");
   return { ok: errors.length === 0, errors };
 }
 
 function normalizeSummary(summary) {
   const out = { ...summary, estadoAtual: summary.estadoAtual.trim() };
-  for (const [field, max] of Object.entries(LIMITS)) out[field] = summary[field].slice(0, max);
+  for (const [field, max] of Object.entries(LIMITS)) out[field] = (summary[field] || []).slice(0, max);
   out.tarefasNovas = out.tarefasNovas.map(t => ({ titulo: t.titulo.trim(), contexto: (t.contexto || "").trim(), prazo: /^\d{4}-\d{2}-\d{2}$/.test(t.prazo || "") ? t.prazo : null }));
+  out.tarefasAtualizadas = out.tarefasAtualizadas.map(t => ({ id: t.id.trim(), feito: (t.feito || "").trim(), contexto: (t.contexto || "").trim() }));
   return out;
 }
 
