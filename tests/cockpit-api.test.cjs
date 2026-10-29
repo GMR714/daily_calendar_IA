@@ -27,7 +27,17 @@ test("cockpit: tela, arquivos, dados e item da fila levado para a agenda sem dup
   const api = await (await fetch(base + "/api/cockpit?force=1")).json();
   assert.equal(api.dados.placar.atencao, 2);
   assert.equal(forcado, true);
-  assert.match(await (await fetch(base + "/")).text(), /href="\/cockpit"/);
+  // o menu lateral (tests/nav-rail.test.cjs) leva da agenda ao cockpit e volta; as duas paginas carregam o mesmo menu
+  for (const pagina of ["/", "/cockpit"]) {
+    const html = await (await fetch(base + pagina)).text();
+    assert.match(html, /<nav id="rail"/, pagina);
+    assert.match(html, /nav-rail\.js/, pagina);
+  }
+  for (const [arquivo, tipo] of [["/nav-rail.js", /javascript/], ["/nav-rail.css", /css/], ["/agenda-layout.js", /javascript/]]) {
+    const resposta = await fetch(base + arquivo);
+    assert.equal(resposta.status, 200, arquivo);
+    assert.match(resposta.headers.get("content-type"), tipo);
+  }
 
   const post = body => fetch(base + "/api/cockpit/agenda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then(async resposta => ({ status: resposta.status, body: await resposta.json() }));

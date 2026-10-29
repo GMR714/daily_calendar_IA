@@ -5,16 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agenda Inteligente</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="product.css?v=26" />
+    <link rel="stylesheet" href="product.css?v=27" />
+    <link rel="stylesheet" href="nav-rail.css?v=1" />
   </head>
-  <body>
+  <body class="simple-ui" data-tela="agenda">
+    <nav id="rail"></nav>
     <main class="app-shell">
       <aside class="sidebar">
         <div>
           <p class="eyebrow">Planejador pessoal</p>
           <h1>Agenda Inteligente</h1>
           <p class="intro">Transforme metas, compromissos e relatos do dia em uma semana organizada.</p>
-          <a class="cockpit-link" href="/cockpit"><span class="cockpit-link-dot" aria-hidden="true"></span>Cockpit da IA<span aria-hidden="true">&#8594;</span></a>
         </div>
 
         <section class="panel assistant-panel">
@@ -263,7 +264,9 @@
 
     <script src="planner-core.js?v=25"></script>
     <script src="checklist.js?v=25"></script>
-    <script src="product-ui.js?v=25"></script>
-    <script src="app.js?v=25"></script>
+    <script src="agenda-layout.js?v=1"></script>
+    <script src="nav-rail.js?v=1"></script>
+    <script src="product-ui.js?v=26"></script>
+    <script src="app.js?v=26"></script>
   </body>
 </html>

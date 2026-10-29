@@ -160,6 +160,15 @@ on(el.todayWeek, "click", () => {
 on(el.nextWeek, "click", () => changeWeek(1));
 on(el.toggleCalendarView, "click", toggleCalendarView);
 el.calendarViewButtons.forEach(button => on(button, "click", () => setCalendarView(button.dataset.calendarView)));
+// A escala do calendario depende da altura dele: redesenha no mesmo quadro em que ela muda (janela, barra que
+// quebra linha, caixa de mensagem que cresce). A altura vem do layout, nao do conteudo, entao redesenhar nao realimenta.
+let alturaDoCalendario = 0;
+if (window.ResizeObserver && el.weekGrid) new ResizeObserver(([medida]) => {
+  const altura = Math.round(medida.contentRect.height);
+  if (Math.abs(altura - alturaDoCalendario) < 3) return;
+  alturaDoCalendario = altura;
+  render();
+}).observe(el.weekGrid);
 on(el.toggleFreeTime, "change", () => {
   showFreeTime = Boolean(el.toggleFreeTime.checked);
   render();
@@ -1157,9 +1166,6 @@ function renderWeek(weekStart) {
   const count = calendarView === "day" ? 1 : 7;
   el.weekGrid.innerHTML = "";
   const { startMinutes, endMinutes } = timelineBounds(weekStart);
-  const pixelsPerMinute = 1.3;
-  el.weekGrid.style.setProperty("--hour-height", "78px");
-  const timelineHeight = (endMinutes - startMinutes) * pixelsPerMinute;
   const corner = document.createElement("div");
   corner.className = "timeline-corner";
   corner.textContent = "Hora";
@@ -1174,6 +1180,12 @@ function renderWeek(weekStart) {
     heading.innerHTML = `<strong>${weekDays[(date.getDay() + 6) % 7]}</strong><span>${formatDate(date)}</span><small>${formatCalendarMinutes(plannedMinutes)}</small>`;
     el.weekGrid.append(heading);
   }
+
+  // A escala vem da altura util: o dia inteiro cabe na tela, sem rolar (agenda-layout.js).
+  const alturaCabecalho = el.weekGrid.querySelector(".timeline-heading")?.offsetHeight || 0;
+  const pixelsPerMinute = AgendaLayout.escalaDoDia({ altura: el.weekGrid.clientHeight - alturaCabecalho - 2, minutos: endMinutes - startMinutes });
+  el.weekGrid.style.setProperty("--hour-height", `${pixelsPerMinute * 60}px`);
+  const timelineHeight = (endMinutes - startMinutes) * pixelsPerMinute;
 
   const axis = document.createElement("div");
   axis.className = "timeline-axis";
@@ -1214,7 +1226,8 @@ function renderWeek(weekStart) {
       const category = calendarCategoryDefinitions[categoryId];
       const goal = state.goals.find(candidate => candidate.id === item.goalId);
       const goalStyle = visualStyleForGoal(item.goalId);
-      const densityClass = blockMinutes <= 30 ? "tiny" : blockMinutes <= 60 ? "compact" : "comfortable";
+      const blockPixels = blockMinutes * pixelsPerMinute;
+      const densityClass = AgendaLayout.densidadeDoBloco(blockPixels);
       const mutedClass = calendarCategoryFilter !== "all" && calendarCategoryFilter !== categoryId ? "is-muted" : "";
       block.className = `timeline-block category-${categoryId} ${densityClass} ${mutedClass} ${item.goalId ? "goal-linked" : ""}`;
       if (item.completed) block.classList.add("is-completed");
@@ -1224,11 +1237,11 @@ function renderWeek(weekStart) {
       block.setAttribute("aria-label", item.title + " " + formatTime(item.start) + " a " + formatTime(item.end));
       block.title = `${formatTime(item.start)}-${formatTime(item.end)} - ${category.label} - ${item.title}`;
       block.style.cssText = `top:${(blockStart - startMinutes) * pixelsPerMinute}px;left:calc(${lane * width}% + 3px);width:calc(${width}% - 6px);height:${Math.max(10, blockMinutes * pixelsPerMinute - 2)}px;${calendarCategoryStyle(categoryId)}${goalStyle}`;
-      block.innerHTML = blockMinutes <= 30
+      block.innerHTML = densityClass === "tiny"
         ? `<div class="block-compact-line"><time>${formatTime(item.start)}</time><strong>${escapeHtml(item.title)}</strong></div>`
         : `<div class="block-meta"><time>${formatTime(item.start)}-${formatTime(item.end)}</time><span class="category-pill"><i></i>${category.label}</span></div>
            <strong class="block-title">${escapeHtml(item.title)}</strong>
-           ${goal && blockMinutes >= 90 ? `<small class="block-goal">${escapeHtml(goal.title)}</small>` : ""}`;
+           ${goal && blockPixels >= 110 ? `<small class="block-goal">${escapeHtml(goal.title)}</small>` : ""}`;
       on(block, "click", () => openBlockDetails(item));
       on(block, "keydown", event => {
         if (event.key === "Enter" || event.key === " ") {

@@ -9,16 +9,12 @@
   const TIPOS = ["dar ok", "decidir", "aguardando terceiros", "travada"];
   const NOME_TIPO = { "dar ok": "Dar ok", decidir: "Decidir", "aguardando terceiros": "Terceiros", travada: "Travadas" };
   const PREFIXOS = ["Copiloto - ", "Seazone Uso IA ", "claude-switcher-"];
-  const LIMITE_FILA = 8;
 
   const ui = lerPreferencias();
   let resposta = null;
   let recebidoEm = 0;
   let destaques = new Set();
   let naAgenda = new Set();
-  const abertos = new Set();
-  const textosAbertos = new Set();
-  let filaCompleta = false;
   let timer = null;
   let toastTimer = null;
   let carregandoAgora = false;
@@ -26,7 +22,7 @@
   const $ = id => document.getElementById(id);
 
   function lerPreferencias() {
-    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null };
+    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes" };
     let lido = { ...padrao };
     try { lido = { ...padrao, ...JSON.parse(localStorage.getItem("cockpit:ui") || "{}") }; } catch { /* sem armazenamento */ }
     const aba = location.hash.slice(1);  // /cockpit#mapa abre direto no mapa
@@ -104,6 +100,7 @@
     } catch { /* sem agenda: os botões só não sabem o que já foi levado */ }
   }
   async function levarParaAgenda(item, botao) {
+    const rotulo = botao.textContent;
     botao.disabled = true;
     botao.textContent = "Levando…";
     const titulo = item.tipo === "dar ok" ? `Copiloto: revisar e dar ${item.comando} (${item.titulo})` : `Copiloto: ${NOME_TIPO[item.tipo] || item.tipo} · ${item.titulo}`;
@@ -117,7 +114,7 @@
       renderizar();
     } catch (erro) {
       botao.disabled = false;
-      botao.textContent = "Levar para a agenda";
+      botao.textContent = rotulo;
       toast(erro.message);
     }
   }
@@ -167,8 +164,10 @@
     const f = V.filtrar(d, { busca: ui.busca, cor: ui.cor });
     document.querySelectorAll(".abas button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.aba === ui.aba)));
     for (const aba of ["painel", "mapa", "hoje"]) $("aba-" + aba).hidden = ui.aba !== aba;
+    document.body.dataset.coluna = ui.coluna; // em tela estreita, as colunas viram abas
+    document.querySelectorAll(".colunas-abas button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.coluna === ui.coluna)));
+    $("alertas").replaceChildren();
     renderKpis(d);
-    renderAlertas(d);
     if (ui.aba === "painel") {
       renderAgentes(f.agentes);
       renderFila(f.voce, d);
@@ -180,41 +179,24 @@
 
   function renderKpis(d) {
     const p = d.placar || {};
+    // Uma linha de chips: o numero de cada cor filtra a tela inteira.
     const cartoes = CORES.map(c => h("button", { class: `kpi ${c}${ui.cor === c ? " ativo" : ""}`, type: "button", "aria-pressed": String(ui.cor === c),
-      title: ui.cor === c ? "Tirar o filtro" : `Mostrar só o que está em ${ROTULO[c].toLowerCase()}`,
+      title: `${DESC[c]}. ${ui.cor === c ? "Clique para tirar o filtro." : "Clique para mostrar só isso."}`,
       onclick: () => { ui.cor = ui.cor === c ? null : c; salvarPreferencias(); renderizar(); } },
-      h("span", { class: "numero" }, p[c] || 0), h("span", { class: "nome" }, bolinha(c), ROTULO[c]), h("span", { class: "desc" }, DESC[c])));
+      h("span", { class: "numero" }, p[c] || 0), h("span", { class: "nome" }, bolinha(c), ROTULO[c])));
     const v = d.voce || {};
-    cartoes.push(h("button", { class: "kpi", type: "button", title: "Ver a fila",
-      onclick: () => { ui.aba = "painel"; ui.tipoFila = null; salvarPreferencias(); renderizar(); $("coluna-voce").scrollIntoView({ behavior: "smooth", block: "start" }); } },
-      h("span", { class: "numero" }, v.total || 0), h("span", { class: "nome" }, "Esperando você"),
-      h("span", { class: "desc" }, v.total ? `o mais antigo há ${v.mais_antigo_dias} dias` : "nada na fila")));
+    cartoes.push(h("button", { class: "kpi voce", type: "button", title: v.total ? `O mais antigo espera há ${v.mais_antigo_dias} dias. Clique para ver a fila.` : "Nada na fila",
+      onclick: () => { ui.aba = "painel"; ui.tipoFila = null; ui.coluna = "voce"; salvarPreferencias(); renderizar(); } },
+      h("span", { class: "numero" }, v.total || 0), h("span", { class: "nome" }, "Esperando você")));
     const m = d.maquina || {};
     const nota = d.nota;
     const gb = x => (x === null || x === undefined ? "—" : `${Number(x).toFixed(1).replace(".", ",")} GB`);
-    cartoes.push(h("div", { class: "kpi estatico" }, h("span", { class: "nome" }, "Máquina"),
-      h("span", { class: "desc" }, bolinha(m.memoria_livre_gb < 2 ? "atencao" : "bem"), ` memória livre ${gb(m.memoria_livre_gb)}`),
-      h("span", { class: "desc" }, bolinha(m.disco_livre_gb < 20 ? "atencao" : "bem"), ` disco livre ${m.disco_livre_gb == null ? "—" : Math.round(m.disco_livre_gb) + " GB"}`),
-      nota ? h("div", { class: "barra-rotulo" }, h("span", {}, "Organização do workspace"), h("b", {}, `${nota.nota}/100`)) : null,
-      nota ? h("div", { class: "barra" }, h("span", { class: nota.nota >= 75 ? "bem" : nota.nota >= 50 ? "atencao" : "problema", style: `width:${nota.nota}%` })) : null));
+    cartoes.push(h("div", { class: "kpi maquina", title: "Memória e disco livres; organização do workspace pela auditoria" },
+      h("span", { class: "nome" }, "Máquina"),
+      h("span", { class: "desc" }, bolinha(m.memoria_livre_gb < 2 ? "atencao" : "bem"), ` memória ${gb(m.memoria_livre_gb)}`),
+      h("span", { class: "desc" }, bolinha(m.disco_livre_gb < 20 ? "atencao" : "bem"), ` disco ${m.disco_livre_gb == null ? "—" : Math.round(m.disco_livre_gb) + " GB"}`),
+      nota ? h("span", { class: "desc" }, bolinha(nota.nota >= 75 ? "bem" : nota.nota >= 50 ? "atencao" : "problema"), ` organização ${nota.nota}/100`) : null));
     $("kpis").replaceChildren(...cartoes);
-  }
-
-  function renderAlertas(d) {
-    const itens = (d.olhar || []).filter(o => !ui.cor || o.cor === ui.cor);
-    if (!itens.length) {
-      $("alertas").replaceChildren(h("h2", {}, bolinha("bem"), "O que olhar agora"),
-        h("p", { class: "tudo-bem" }, ui.cor ? "Nada com esse filtro." : "Nada vermelho nem amarelo agora."));
-      return;
-    }
-    $("alertas").replaceChildren(h("h2", {}, "O que olhar agora", h("span", { class: "contagem" }, itens.length)),
-      h("ul", {}, itens.map(o => h("li", { class: "alerta" }, bolinha(o.cor), h("span", { class: "texto" }, o.texto), acaoDoAlerta(o)))));
-  }
-  function acaoDoAlerta(o) {
-    if (o.tipo === "agente") return h("button", { class: "link", type: "button", onclick: () => abrirGaveta("agente", o.id) }, "Ver agente");
-    if (o.tipo === "rotina") return h("button", { class: "link", type: "button", onclick: () => abrirGaveta("rotina", o.id) }, "Ver rotina");
-    if (o.tipo === "voce") return h("button", { class: "link", type: "button", onclick: () => { ui.aba = "painel"; renderizar(); $("coluna-voce").scrollIntoView({ behavior: "smooth" }); } }, "Ver fila");
-    return null;
   }
 
   function renderAgentes(agentes) {
@@ -224,27 +206,19 @@
       $("agentes").replaceChildren(h("p", { class: "vazio" }, ui.busca || ui.cor ? "Nenhum agente com esse filtro." : "Nenhuma sessão viva agora."));
       return;
     }
-    $("agentes").replaceChildren(...grupos.flatMap(g => [h("div", { class: "grupo-titulo" }, h("span", {}, g.titulo), h("span", {}, g.itens.length)), ...g.itens.map(cartaoAgente)]));
+    $("agentes").replaceChildren(...grupos.flatMap(g => [h("div", { class: "grupo-titulo" }, h("span", {}, g.titulo), h("span", {}, g.itens.length)), ...g.itens.map(linhaAgente)]));
   }
-  function cartaoAgente(a) {
+  // Linha compacta (2 linhas): nome e hora; estado e contexto. O resto fica na gaveta.
+  function linhaAgente(a) {
     const ctx = V.medidorContexto(a.contexto);
-    const aberto = abertos.has(a.id);
-    return h("article", { class: `cartao cor-${a.cor}${destaques.has(a.id) ? " mudou" : ""}` },
-      h("div", { class: "cartao-topo" }, bolinha(a.cor),
-        h("div", { class: "cartao-titulo" }, h("b", {}, a.nome),
-          h("div", { class: "sub" }, h("span", { class: `chip ${a.papel}` }, a.papel), " ", a.frente || "", a.branch ? ` · ${a.branch}` : "")),
+    const abrir = () => abrirGaveta("agente", a.id);
+    return h("article", { class: `linha cor-${a.cor}${destaques.has(a.id) ? " mudou" : ""}`, tabindex: "0", role: "button", title: a.agora || a.estado,
+      onclick: abrir, onkeydown: e => { if (e.key === "Enter") abrir(); } },
+      h("div", { class: "linha-1" }, bolinha(a.cor), h("b", {}, a.nome), a.papel && a.papel !== "sessão" ? h("span", { class: `chip ${a.papel}` }, a.papel) : null,
         h("span", { class: "quando" }, a.atualizado ? `às ${a.atualizado}` : "")),
-      h("p", { class: `estado estado-${a.cor}` }, a.estado),
-      h("p", { class: `agora${a.agora ? "" : " vazio"}` }, a.agora || "Ainda sem fala registrada."),
-      h("div", { class: "medidor", title: "Contexto da sessão: até 200 mil tranquilo, até 500 mil atenção, acima disso o Claude começa a errar mais" },
-        h("div", { class: "medidor-barra" }, h("span", { class: `medidor-preench ${ctx.cor}`, style: `width:${ctx.pct}%` }), h("i", { class: "marca m200" }), h("i", { class: "marca m500" })),
-        h("span", { class: "medidor-rotulo" }, `contexto ${ctx.rotulo}`)),
-      aberto ? h("dl", { class: "detalhes" }, linha("O que pediram", a.pedido), linha("Último pedido", a.ultimo_pedido !== a.pedido ? a.ultimo_pedido : ""),
-        linha("Ferramenta em uso", a.ferramenta), linha("Pasta", a.pasta), linha("Tipo de sessão", a.tipo)) : null,
-      h("div", { class: "acoes" },
-        h("button", { class: "link", type: "button", onclick: () => { if (aberto) abertos.delete(a.id); else abertos.add(a.id); renderizar(); } }, aberto ? "Menos" : "Detalhes"),
-        h("button", { class: "link", type: "button", onclick: () => abrirGaveta("agente", a.id) }, "Abrir"),
-        a.comando ? h("button", { class: "link", type: "button", onclick: () => copiar(a.comando, "Comando copiado. Cole no terminal para entrar na sessão.") }, "Copiar attach") : null));
+      h("div", { class: "linha-2" }, h("span", { class: `texto estado-${a.cor}` }, a.estado),
+        h("span", { class: "mini-medidor", title: `Contexto: ${ctx.rotulo} tokens, ${ZONA[ctx.cor]}` }, h("span", { class: `medidor-preench ${ctx.cor}`, style: `width:${ctx.pct}%` })),
+        h("span", { class: "medidor-rotulo" }, ctx.rotulo)));
   }
 
   function renderFila(itens, d) {
@@ -252,32 +226,28 @@
     $("n-voce").textContent = v.total ? `${v.total} itens · o mais antigo há ${v.mais_antigo_dias} d` : "nada esperando";
     const conta = t => itens.filter(i => i.tipo === t).length;
     $("voce-filtros").replaceChildren(
-      botaoSegmento("Todos", itens.length, !ui.tipoFila, () => { ui.tipoFila = null; filaCompleta = false; salvarPreferencias(); renderizar(); }),
+      botaoSegmento("Todos", itens.length, !ui.tipoFila, () => { ui.tipoFila = null; salvarPreferencias(); renderizar(); }),
       ...TIPOS.filter(conta).map(t => botaoSegmento(NOME_TIPO[t], conta(t), ui.tipoFila === t,
-        () => { ui.tipoFila = ui.tipoFila === t ? null : t; filaCompleta = false; salvarPreferencias(); renderizar(); })));
+        () => { ui.tipoFila = ui.tipoFila === t ? null : t; salvarPreferencias(); renderizar(); })));
     const lista = itens.filter(i => !ui.tipoFila || i.tipo === ui.tipoFila);
-    const mostrar = filaCompleta ? lista : lista.slice(0, LIMITE_FILA);
-    if (!lista.length) {
-      $("voce").replaceChildren(h("p", { class: "vazio" }, v.total ? "Nada com esse filtro." : "Nada esperando você."));
-      return;
-    }
-    $("voce").replaceChildren(...mostrar.map(itemFila),
-      lista.length > mostrar.length ? h("button", { class: "link mais", type: "button", onclick: () => { filaCompleta = true; renderizar(); } }, `Ver os ${lista.length}`) : "");
+    $("voce").replaceChildren(...(lista.length ? lista.map(linhaFila) : [h("p", { class: "vazio" }, v.total ? "Nada com esse filtro." : "Nada esperando você.")]));
   }
-  function itemFila(i) {
+  const idadeDoItem = i => (i.dias === null || i.dias === undefined ? "" : i.dias === 0 ? "hoje" : `há ${i.dias} d`);
+  const copiarComando = i => copiar(i.comando, `"${i.comando}" copiado. Mande na sua DM para o Copiloto enviar.`);
+  // Linha compacta: tipo, titulo e idade; o texto em uma linha e as duas acoes. O texto inteiro fica na gaveta.
+  function linhaFila(i) {
     const levado = naAgenda.has(i.id);
-    const aberto = textosAbertos.has(i.id);
-    return h("article", { class: `item-fila${i.velho ? " velho" : ""}` },
-      h("div", { class: "item-topo" }, h("span", { class: "tipo" }, NOME_TIPO[i.tipo] || i.tipo),
-        i.comando ? h("code", {}, i.comando) : h("span", { class: "chip" }, i.id),
-        h("span", { class: `idade${i.velho ? " velha" : ""}` }, i.dias === null || i.dias === undefined ? "" : i.dias === 0 ? "de hoje" : `há ${i.dias} d`)),
-      h("b", { class: "item-titulo" }, i.titulo),
-      i.texto ? h("p", { class: `item-texto${aberto ? " aberto" : ""}`, title: aberto ? "Clique para recolher" : "Clique para ler tudo",
-        onclick: () => { if (aberto) textosAbertos.delete(i.id); else textosAbertos.add(i.id); renderizar(); } }, i.texto) : null,
-      h("div", { class: "acoes" },
-        i.comando ? h("button", { class: "botao pequeno", type: "button", onclick: () => copiar(i.comando, `"${i.comando}" copiado. Mande na sua DM para o Copiloto enviar.`) }, `Copiar ${i.comando}`) : null,
-        h("button", { class: `botao pequeno secundario${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
-          onclick: ev => levarParaAgenda(i, ev.currentTarget) }, levado ? "✓ Na agenda" : "Levar para a agenda")));
+    const abrir = () => abrirGaveta("voce", i.id);
+    const acoes = [
+      i.comando ? h("button", { class: "mini", type: "button", title: `Copia "${i.comando}" para você mandar na sua DM ao Copiloto`,
+        onclick: e => { e.stopPropagation(); copiarComando(i); } }, i.comando) : null,
+      h("button", { class: `mini${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
+        onclick: e => { e.stopPropagation(); levarParaAgenda(i, e.currentTarget); } }, levado ? "✓ agenda" : "+ agenda")];
+    return h("article", { class: `linha${i.velho ? " cor-atencao" : ""}`, tabindex: "0", role: "button", title: i.texto || i.titulo,
+      onclick: abrir, onkeydown: e => { if (e.key === "Enter" && e.target === e.currentTarget) abrir(); } },
+      h("div", { class: "linha-1" }, h("span", { class: "tipo" }, NOME_TIPO[i.tipo] || i.tipo), h("b", {}, i.titulo),
+        h("span", { class: `quando${i.velho ? " velha" : ""}` }, idadeDoItem(i)), i.texto ? null : acoes),
+      i.texto ? h("div", { class: "linha-2" }, h("span", { class: "texto" }, i.texto), acoes) : null);
   }
 
   function renderRotinas(rotinas, semSegmento) {
@@ -298,9 +268,9 @@
     const pu = V.posicaoNoDia(r.ultima, dia);
     const pp = V.posicaoNoDia(r.proxima, dia);
     const abrir = () => abrirGaveta("rotina", r.nome);
-    return h("article", { class: `rotina${destaques.has("rotina:" + r.nome) ? " mudou" : ""}`, tabindex: "0", onclick: abrir, onkeydown: e => { if (e.key === "Enter") abrir(); } },
-      h("div", { class: "rotina-topo" }, bolinha(r.cor), h("b", {}, r.nome), h("span", { class: "chip" }, r.segmento)),
-      h("div", { class: "rotina-meta" }, h("span", {}, r.agenda || r.onde), h("span", { class: `situ t-${r.cor}` }, r.texto)),
+    return h("article", { class: `linha linha-rotina${destaques.has("rotina:" + r.nome) ? " mudou" : ""}`, tabindex: "0", role: "button",
+      title: `${r.nome} · ${r.agenda || r.onde} · ${r.texto}`, onclick: abrir, onkeydown: e => { if (e.key === "Enter") abrir(); } },
+      h("div", { class: "linha-1" }, bolinha(r.cor), h("b", {}, r.nome), h("span", { class: `situ t-${r.cor}` }, r.texto)),
       h("div", { class: "trilho", title: "Hoje, de 0h a 24h: ponto cheio = última execução, ponto vazado = próxima, traço vermelho = agora" },
         pu !== null ? h("i", { class: `ult ${r.cor}`, style: `left:${pu}%`, title: `última: ${horaDe(r.ultima)}` }) : null,
         pp !== null ? h("i", { class: "prox", style: `left:${pp}%`, title: `próxima: ${horaDe(r.proxima)}` }) : null,
@@ -319,8 +289,7 @@
     svg.append(g);
   }
   function irParaFila(tipo) {
-    ui.aba = "painel"; ui.tipoFila = tipo; salvarPreferencias(); renderizar();
-    $("coluna-voce").scrollIntoView({ behavior: "smooth", block: "start" });
+    ui.aba = "painel"; ui.tipoFila = tipo; ui.coluna = "voce"; salvarPreferencias(); renderizar();
   }
   function renderMapa(d, f) {
     const svg = $("mapa");
@@ -340,7 +309,7 @@
     outros.forEach((a, i) => { pos[a.id] = [230 + ((i % cols) + 0.5) * (470 / cols), 92 + Math.floor(i / cols) * 66]; });
     for (const o of orqs) for (const w of outros.filter(a => a.papel === "worker"))
       svg.append(s("line", { x1: pos[o.id][0], y1: pos[o.id][1], x2: pos[w.id][0], y2: pos[w.id][1], class: "aresta" }));
-    for (const a of ag) noMapa(svg, pos[a.id], a.cor, a.nome, () => abrirGaveta("agente", a.id), { r: a.papel === "orquestradora" ? 15 : 11, apagado: filtrando && !visiveis.has(a.id), max: 26 });
+    for (const a of ag) noMapa(svg, pos[a.id], a.cor, a.nome, () => abrirGaveta("agente", a.id), { r: a.papel === "orquestradora" ? 15 : 11, apagado: filtrando && !visiveis.has(a.id), max: 18 });
     nuvem.forEach((r, i) => noMapa(svg, [830 + (i % 2) * 165, 100 + Math.floor(i / 2) * 66], r.cor, r.nome, () => abrirGaveta("rotina", r.nome)));
 
     const v = d.voce || {};
@@ -422,6 +391,17 @@
       corpo = [h("p", { class: "eyebrow" }, r.segmento), h("h3", {}, r.nome), h("p", { class: `estado estado-${r.cor}` }, r.texto),
         h("dl", { class: "detalhes" }, linha("Agenda", r.agenda), linha("Onde roda", r.onde), linha("Última execução", horaDe(r.ultima)),
           linha("Próxima", horaDe(r.proxima)), linha("Execuções", r.link ? h("a", { href: r.link, target: "_blank", rel: "noopener" }, "abrir no GitHub") : ""))];
+    } else if (tipo === "voce") {
+      const i = ((d.voce && d.voce.itens) || []).find(x => x.id === id);
+      if (!i) return fecharGaveta();
+      const levado = naAgenda.has(i.id);
+      corpo = [h("p", { class: "eyebrow" }, `${NOME_TIPO[i.tipo] || i.tipo} · ${i.id}`), h("h3", {}, i.titulo),
+        h("dl", { class: "detalhes" }, linha("O que é", i.texto), linha("Esperando", idadeDoItem(i)),
+          linha("Tarefa", i.tarefa && i.tarefa !== i.id ? i.tarefa : ""), linha("Como responder", i.comando ? h("code", {}, i.comando) : "")),
+        h("div", { class: "acoes" },
+          i.comando ? h("button", { class: "botao pequeno", type: "button", onclick: () => copiarComando(i) }, `Copiar ${i.comando}`) : null,
+          h("button", { class: `botao pequeno secundario${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
+            onclick: ev => levarParaAgenda(i, ev.currentTarget) }, levado ? "✓ Na agenda" : "Levar para a agenda"))];
     }
     if (!corpo) return;
     gaveta = { tipo, id };
@@ -439,7 +419,9 @@
   }
 
   // ------------------------------------------------------------------ eventos
+  NavRail.montar($("rail"), { ativo: "cockpit" });
   document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => { ui.aba = b.dataset.aba; salvarPreferencias(); renderizar(); }));
+  document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
   $("busca").addEventListener("input", debounce(e => { ui.busca = e.target.value; renderizar(); }, 120));
   $("atualizar").addEventListener("click", () => carregar(true));
   $("fecharGaveta").addEventListener("click", fecharGaveta);

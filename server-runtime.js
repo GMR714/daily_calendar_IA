@@ -6,13 +6,37 @@ const Planner = require("./planner-core");
 const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
+const { execFile } = require("node:child_process");
 
-function createApp({ interpret, aiStatus, cockpit, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json") }) {
+// Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
+// iniciar-painel.cmd. O Start-Process da ao painel um console proprio, que o overlay.ps1 esconde: com
+// `detached` o PowerShell sai na hora (fica sem console), e preso ao console do servidor ele esconderia a
+// janela do iniciar.cmd. Os caminhos vao por variavel de ambiente porque podem ter espaco ("New project").
+// O PID devolvido evita empilhar paineis a cada clique.
+let painelPid = null;
+const processoVivo = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+function abrirPainelFlutuante({ serverUrl }) {
+  if (process.platform !== "win32") throw Object.assign(new Error("O painel flutuante so existe no Windows."), { status: 501 });
+  if (painelPid && processoVivo(painelPid)) return { jaAberto: true };
+  const comando = "(Start-Process -FilePath powershell.exe -WorkingDirectory $env:PAINEL_DIR -PassThru -ArgumentList @('-Sta','-NoProfile','-ExecutionPolicy','Bypass','-File',([char]34 + $env:PAINEL_PS1 + [char]34),'-ServerUrl',$env:PAINEL_URL)).Id";
+  return new Promise((resolve, reject) => {
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", comando],
+      { windowsHide: true, timeout: 20000, env: { ...process.env, PAINEL_DIR: __dirname, PAINEL_PS1: path.join(__dirname, "overlay.ps1"), PAINEL_URL: serverUrl } },
+      (erro, saida) => {
+        if (erro) return reject(Object.assign(new Error("Nao consegui abrir o painel flutuante."), { status: 500 }));
+        painelPid = Number(String(saida).trim()) || null;
+        resolve({ jaAberto: false });
+      });
+  });
+}
+
+function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json") }) {
   const store = createStore(file);
   const proposals = new Map();
   let cockpitSource = cockpit;
   const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js",
-    "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js" };
+    "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js",
+    "/nav-rail.js": "nav-rail.js", "/nav-rail.css": "nav-rail.css", "/agenda-layout.js": "agenda-layout.js" };
   // Item da fila "Voce" do Copiloto vira tarefa de 30 min para hoje; a impressao digital evita duplicar.
   function cockpitParaAgenda(body) {
     const id = String(body.id || "").trim().slice(0, 80);
@@ -70,6 +94,11 @@ function createApp({ interpret, aiStatus, cockpit, file = process.env.AGENDA_DAT
       }
       if (req.method === "POST" && url.pathname === "/api/cockpit/agenda") return reply(res, 200, cockpitParaAgenda(await readJson(req)));
       if (req.method === "GET" && url.pathname === "/api/overlay") return reply(res, 200, Overlay.checklist(store.read()));
+      if (req.method === "POST" && url.pathname === "/api/overlay/abrir") {
+        await readJson(req);
+        const aberto = await launchOverlay({ serverUrl: `http://127.0.0.1:${req.socket.localPort}` });
+        return reply(res, 200, { ok: true, jaAberto: Boolean(aberto && aberto.jaAberto) });
+      }
       if (req.method === "GET" && url.pathname === "/api/status") {
         if (aiStatus) {
           const ai = await aiStatus();
