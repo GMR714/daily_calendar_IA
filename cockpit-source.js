@@ -5,10 +5,10 @@ const { execFile } = require("node:child_process");
 
 const DEFAULT_CLI = "C:\\Dev\\Dev Seazone\\copiloto\\cli.py";
 
-function commandFor(env = process.env, platform = process.platform) {
+function commandFor(env = process.env, platform = process.platform, argumentos = ["cockpit", "--json"]) {
   const cli = env.COCKPIT_CLI || DEFAULT_CLI;
   const python = env.COCKPIT_PYTHON || (platform === "win32" ? "py" : "python3");
-  return { file: python, args: [...(python === "py" ? ["-3"] : []), cli, "cockpit", "--json"] };
+  return { file: python, args: [...(python === "py" ? ["-3"] : []), cli, ...argumentos] };
 }
 
 function friendlyError(error) {

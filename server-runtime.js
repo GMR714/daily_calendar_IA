@@ -7,6 +7,7 @@ const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
 const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts } = require("./request-guard");
+const { createCopilotoCommands, validarResposta } = require("./copiloto-command");
 const { execFile } = require("node:child_process");
 
 // Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
@@ -31,7 +32,7 @@ function abrirPainelFlutuante({ serverUrl }) {
   });
 }
 
-function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS }) {
+function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, copiloto = createCopilotoCommands() }) {
   const store = createStore(file);
   const hostsExtras = listaDeHosts(hosts);
   const proposals = new Map();
@@ -84,7 +85,18 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       if (!hostPermitido(req.headers.host, hostsExtras)) return reply(res, 403, { error: "Endereco nao permitido. Abra a agenda por localhost ou 127.0.0.1, ou inclua o nome em AGENDA_HOSTS." });
       const url = new URL(req.url, `http://${req.headers.host}`);
       if (!origemPermitida({ method: req.method, origin: req.headers.origin, host: req.headers.host })) return reply(res, 403, { error: "Origem nao permitida." });
-      if (url.pathname === "/api/overlay/abrir" && !pedidoLocal(req.socket.remoteAddress)) return reply(res, 403, { error: "Esta acao so vale neste computador." });
+      const comando = url.pathname === "/api/overlay/abrir" || url.pathname.startsWith("/api/copiloto/");
+      if (comando && !pedidoLocal(req.socket.remoteAddress)) return reply(res, 403, { error: "Esta acao so vale neste computador." });
+      // Responder ao Copiloto pode mandar mensagem em nome do Gabriel: so JSON, que de outro site exige pre-checagem.
+      if (url.pathname.startsWith("/api/copiloto/") && !/^application\/json\b/i.test(req.headers["content-type"] || "")) return reply(res, 415, { error: "Envie JSON." });
+      if (req.method === "POST" && url.pathname === "/api/copiloto/responder") {
+        const resposta = validarResposta(await readJson(req));
+        return reply(res, 200, { ok: true, entrada: await copiloto.responder(resposta) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/copiloto/rodar") {
+        await readJson(req);
+        return reply(res, 200, { ok: true, ...(await copiloto.rodar()) });
+      }
       if (req.method === "GET" && publicFiles[url.pathname]) {
         const name = publicFiles[url.pathname];
         const type = { ".html": "text/html", ".css": "text/css", ".js": "application/javascript" }[path.extname(name)];
