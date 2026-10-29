@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { projectId, openTasksFor, applySummaries, loadAgenda, saveAgenda } = require("../agenda");
+const { projectId, openTasksFor, applySummaries, loadAgenda, saveAgenda, taskViews } = require("../agenda");
 
 const NOW = "2026-10-22T06:00:00.000Z";
 
@@ -16,6 +16,35 @@ function entry(day, project, overrides) {
 }
 
 const manual = { id: "manual-1", type: "routine", text: "Academia", duration: 60, priority: 2 };
+
+test("tarefas da rodada viram fichas para o vault, com projeto, datas e evidência", () => {
+  const data = {
+    projects: [{ id: "pessoais/pokesurvivors", name: "PokeSurvivors", area: "Pessoais" }],
+    entries: [
+      manual,
+      { id: "sync-a", source: "sync", status: "sugerida", text: "Testar no celular", context: "Abre com Esc.", projectId: "pessoais/pokesurvivors", date: "2026-10-25", origin: { day: "2026-10-20", area: "Pessoais", project: "PokeSurvivors" }, createdAt: "2026-10-21T09:00:00.000Z", updatedAt: "2026-10-21T09:00:00.000Z" },
+      { id: "sync-b", source: "sync", status: "feita", text: "Criar o menu", projectId: "pessoais/pokesurvivors", origin: { day: "2026-10-19" }, doneAuto: true, doneBy: { day: "2026-10-20", evidence: "Menu criado." }, updatedAt: "2026-10-21T09:00:00.000Z" },
+      // Feita no app à 01:00 UTC de 23/10 ainda é 22/10 no horário de Brasília.
+      { id: "sync-c", source: "sync", status: "feita", text: "Placar", projectId: "pessoais/pokesurvivors", origin: { day: "2026-10-19" }, updatedAt: "2026-10-23T01:00:00.000Z" },
+      { id: "sync-d", source: "sync", status: "sugerida", text: "Sem projeto conhecido", projectId: "seazone/sumiu" }
+    ]
+  };
+  const views = taskViews(data);
+  assert.deepEqual(views.map(v => v.id), ["sync-a", "sync-b", "sync-c"]);
+  const [a, b, c] = views;
+  assert.equal(a.area, "Pessoais");
+  assert.equal(a.project, "PokeSurvivors");
+  assert.equal(a.title, "Testar no celular");
+  assert.equal(a.context, "Abre com Esc.");
+  assert.equal(a.createdDay, "2026-10-20");
+  assert.equal(a.deadline, "2026-10-25");
+  assert.equal(a.doneDay, null);
+  assert.equal(b.doneDay, "2026-10-20");
+  assert.equal(b.doneAuto, true);
+  assert.equal(b.evidence, "Menu criado.");
+  assert.equal(c.doneDay, "2026-10-22");
+  assert.equal(c.doneAuto, false);
+});
 
 test("id de projeto é estável e sem acento", () => {
   assert.equal(projectId("Pessoais", "Vídeo Editor"), "pessoais/video-editor");

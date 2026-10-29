@@ -161,6 +161,52 @@ function lastGoodBefore(entries = [], day) {
   return entries.filter(e => e.summary && e.day < day).pop() || null;
 }
 
+// Cada rodada só vê o dia anterior: a lista de avulsas do índice vem do que foi acumulado.
+function mergeLoose(known, digests) {
+  const byKey = new Map(known.map(s => [`${s.day}|${s.title}`, s]));
+  for (const d of digests.filter(d => d.loose)) byKey.set(`${d.day}|${d.title || "(sem título)"}`, { day: d.day, title: d.title || "(sem título)" });
+  return Array.from(byKey.values()).sort((a, b) => a.day.localeCompare(b.day) || a.title.localeCompare(b.title));
+}
+
+const OPEN_TASK = new Set(["sugerida", "confirmada"]);
+
+// O vault é uma projeção do cache de resumos e da agenda: a cada rodada todos os projetos e
+// todas as tarefas são regravados, e só muda no disco o arquivo cujo conteúdo mudou.
+function writeVault({ target, backupDir, history, agendaData, loose, today, offsetHours }) {
+  const write = (rel, build) => vault.safeWrite(target, rel, build(vault.readNote(target, rel)), { backupDir });
+  const views = agendaData ? agendaStore.taskViews(agendaData, { offsetHours }) : null;
+  let notes = [];
+  if (views) {
+    const existing = vault.findTaskNotes(target);
+    // Descartada não ganha nota; se já tinha, a nota fica e só o status muda.
+    const visible = views.filter(v => v.status !== "descartada" || existing.has(v.id));
+    const paths = vault.assignTaskPaths(visible, existing);
+    notes = visible.map(v => ({ ...v, path: paths.get(v.id), note: paths.get(v.id).replace(/\.md$/, "") }));
+    for (const task of notes) write(task.path, current => vault.taskNoteText(current, task));
+  }
+  const tasksOf = key => notes.filter(t => projectKey(t.area, t.project) === key);
+
+  const rows = [];
+  for (const [key, entries] of history) {
+    const good = entries.filter(e => e.summary);
+    if (!good.length) continue;
+    const latest = good[good.length - 1];
+    const lastDay = entries[entries.length - 1].day;
+    const pendingDays = entries.filter(e => !e.summary && e.day > latest.day).map(e => e.day);
+    const tasks = views ? tasksOf(key) : undefined;
+    const blocks = vault.renderProjectBlocks({ summary: latest.summary, summaryDay: latest.day, pendingDays, history: entries, sessions: entries.flatMap(e => e.sessions || []), lastDay, tasks });
+    const initial = vault.projectTemplate(latest.area, latest.project);
+    write(vault.projectNotePath(latest.area, latest.project), current => vault.setFrontmatter(
+      vault.upsertBlocks(current == null ? null : vault.removeBlocks(current, ["recente"]), blocks, { initial, anchor: vault.MINE }),
+      { tipo: "projeto", area: latest.area, projeto: latest.project, "ultima-atividade": lastDay }
+    ));
+    rows.push({ area: latest.area, project: latest.project, lastDay, summaryDay: latest.day, state: latest.summary.estadoAtual, open: tasks ? tasks.filter(t => OPEN_TASK.has(t.status)).length : null });
+  }
+  write(vault.INDEX_PATH, current => vault.upsertBlocks(current, { indice: vault.renderIndex(rows), avulsas: vault.renderLoose(loose, today) }, { initial: vault.indexTemplate() }));
+  if (vault.readNote(target, vault.TASKS_BASE_PATH) == null) write(vault.TASKS_BASE_PATH, () => vault.tasksBase());
+  return { taskNotes: notes.length, projects: rows.length };
+}
+
 async function runVault({
   projectsDir = DEFAULT_PROJECTS_DIR,
   vaultDir = DEFAULT_VAULT_DIR,
@@ -177,15 +223,17 @@ async function runVault({
   model = "haiku",
   maxSummaries = Infinity,
   dryRun = false,
+  renderOnly = false,
   today = localDay(new Date().toISOString(), offsetHours),
   log = () => {}
 }) {
-  const { digests } = await collectDigests({ projectsDir, config, since, until, offsetHours });
+  // Só regravar o vault: nada de sessões nem de IA, só o cache e a agenda como estão.
+  const { digests } = renderOnly ? { digests: [] } : await collectDigests({ projectsDir, config, since, until, offsetHours });
   const items = groupProjects(digests)
     .flatMap(p => projectDays(p, maxChars))
     .sort((a, b) => a.day.localeCompare(b.day) || a.area.localeCompare(b.area) || a.project.localeCompare(b.project));
 
-  if (!runner) fs.mkdirSync(CLAUDE_WORK_DIR, { recursive: true });
+  if (!runner && items.length) fs.mkdirSync(CLAUDE_WORK_DIR, { recursive: true });
   const run = runner || claudeRunner({ model, cwd: CLAUDE_WORK_DIR });
   const cacheDir = path.join(dataDir, "summaries");
   const history = loadSummaryCache(cacheDir);
@@ -253,52 +301,33 @@ async function runVault({
     processed.push(entry);
   }
 
-  const target = dryRun ? previewDir : vaultDir;
-  const backupDir = dryRun ? null : path.join(vaultDir, ".sync-backup", today);
-  const write = (rel, build) => vault.safeWrite(target, rel, build(vault.readNote(target, rel)), { backupDir });
-
-  const touched = new Set(processed.map(e => projectKey(e.area, e.project)));
-  for (const key of touched) {
-    const entries = history.get(key) || [];
-    const good = entries.filter(e => e.summary);
-    if (!good.length) continue;
-    const latest = good[good.length - 1];
-    const lastDay = entries[entries.length - 1].day;
-    const pendingDays = entries.filter(e => !e.summary && e.day > latest.day).map(e => e.day);
-    const blocks = vault.renderProjectBlocks({ summary: latest.summary, summaryDay: latest.day, pendingDays, history: entries, sessions: entries.flatMap(e => e.sessions || []), lastDay });
-    write(vault.projectNotePath(latest.area, latest.project), current => vault.setFrontmatter(
-      vault.upsertBlocks(current, blocks, { initial: vault.projectTemplate(latest.area, latest.project) }),
-      { tipo: "projeto", area: latest.area, projeto: latest.project, "ultima-atividade": lastDay }
-    ));
-  }
-
-  const days = Array.from(new Set([...processed.map(e => e.day), ...digests.filter(d => d.loose).map(d => d.day)])).sort();
-  for (const day of days) {
-    const loose = Array.from(new Map(digests.filter(d => d.loose && d.day === day).map(d => [d.sessionId, d])).values());
-    const block = vault.renderDiary(day, processed.filter(e => e.day === day), loose);
-    write(vault.diaryPath(day), current => vault.upsertBlocks(current, { dia: block }, { initial: vault.diaryTemplate(day) }));
-  }
-
-  const rows = Array.from(history.values())
-    .map(entries => {
-      const good = entries.filter(e => e.summary);
-      if (!good.length) return null;
-      const latest = good[good.length - 1];
-      return { area: latest.area, project: latest.project, lastDay: entries[entries.length - 1].day, summaryDay: latest.day, state: latest.summary.estadoAtual };
-    })
-    .filter(Boolean);
-  write(vault.INDEX_PATH, current => vault.upsertBlocks(current, { indice: vault.renderIndex(rows) }, { initial: vault.indexTemplate() }));
-
-  if (!dryRun) vault.pruneBackups(path.join(vaultDir, ".sync-backup"), today);
-
+  // Agenda antes do vault: as tarefas sugeridas nesta rodada já ganham nota agora.
   let tasks = { added: 0, closed: 0 };
+  let agendaData = null;
   if (agenda) {
     // Relê o arquivo: o app pode ter gravado nele enquanto a IA resumia.
-    const result = agendaStore.applySummaries(agendaStore.loadAgenda(agendaFile), processed, { now: new Date().toISOString() });
-    tasks = result;
-    if (dryRun) agendaStore.saveAgenda(agendaPreviewFile, result.data);
-    else agendaStore.saveAgenda(agendaFile, result.data, { backupFile: path.join(dataDir, "agenda-backup", `${today}.json`) });
+    const current = agendaStore.loadAgenda(agendaFile);
+    if (renderOnly) {
+      agendaData = current;
+    } else {
+      const result = agendaStore.applySummaries(current, processed, { now: new Date().toISOString() });
+      tasks = result;
+      agendaData = result.data;
+      if (dryRun) agendaStore.saveAgenda(agendaPreviewFile, result.data);
+      else agendaStore.saveAgenda(agendaFile, result.data, { backupFile: path.join(dataDir, "agenda-backup", `${today}.json`) });
+    }
   }
+
+  const looseFile = path.join(dataDir, "avulsas.json");
+  const known = readJson(looseFile) || [];
+  const loose = mergeLoose(known, digests);
+  if (!dryRun && JSON.stringify(loose) !== JSON.stringify(known)) writeJson(looseFile, loose);
+
+  const target = dryRun ? previewDir : vaultDir;
+  const backupDir = dryRun ? null : path.join(vaultDir, ".sync-backup", today);
+  const written = writeVault({ target, backupDir, history, agendaData, loose, today, offsetHours });
+
+  if (!dryRun) vault.pruneBackups(path.join(vaultDir, ".sync-backup"), today);
 
   const daysWhere = test => Array.from(new Set(processed.filter(test).map(e => e.day))).sort();
   return {
@@ -308,7 +337,8 @@ async function runVault({
     tasksAdded: tasks.added,
     tasksClosed: tasks.closed,
     projectDays: items.length,
-    days: days.length,
+    taskNotes: written.taskNotes,
+    projects: written.projects,
     failedDays: daysWhere(e => !e.summary && !e.limit && !e.capped),
     pendingDays: daysWhere(e => !e.summary && (e.limit || e.capped)),
     target
@@ -316,12 +346,13 @@ async function runVault({
 }
 
 function parseArgs(argv) {
-  const args = { digest: false, vault: false, dryRun: false, agendaFile: DEFAULT_AGENDA_FILE };
+  const args = { digest: false, vault: false, dryRun: false, renderOnly: false, agendaFile: DEFAULT_AGENDA_FILE };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--digest") args.digest = true;
     else if (arg === "--vault") args.vault = true;
     else if (arg === "--dry-run") args.dryRun = true;
+    else if (arg === "--so-vault") args.renderOnly = true;
     else if (arg === "--desde") args.since = argv[++i];
     else if (arg === "--ate") args.until = argv[++i];
     else if (arg === "--saida") args.outDir = path.resolve(argv[++i]);
@@ -338,7 +369,8 @@ function parseArgs(argv) {
 const USAGE = [
   "Uso:",
   "  node sync/run.js --digest --desde AAAA-MM-DD [--ate AAAA-MM-DD] [--saida pasta]",
-  "  node sync/run.js --vault --desde AAAA-MM-DD [--ate AAAA-MM-DD] [--dry-run] [--vault-dir pasta] [--agenda-file arquivo | --sem-agenda] [--modelo haiku]"
+  "  node sync/run.js --vault --desde AAAA-MM-DD [--ate AAAA-MM-DD] [--dry-run] [--vault-dir pasta] [--agenda-file arquivo | --sem-agenda] [--modelo haiku]",
+  "  node sync/run.js --vault --so-vault [--dry-run] [--vault-dir pasta]   (regrava o vault com os resumos já feitos e a agenda, sem ler sessões nem chamar a IA)"
 ].join("\n");
 
 async function main() {
@@ -360,8 +392,8 @@ async function main() {
     return;
   }
 
-  const result = await runVault({ since, until, dryRun: args.dryRun, vaultDir: args.vaultDir, agendaFile: args.agendaFile, model: args.model, maxChars: args.maxChars, today, log: line => console.log(line) });
-  console.log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.days} diários (${seconds()}s).`);
+  const result = await runVault({ since, until, dryRun: args.dryRun, renderOnly: args.renderOnly, vaultDir: args.vaultDir, agendaFile: args.agendaFile, model: args.model, maxChars: args.maxChars, today, log: line => console.log(line) });
+  console.log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.projects} projetos e ${result.taskNotes} notas de tarefa no vault (${seconds()}s).`);
   if (args.agendaFile) console.log(`Agenda${args.dryRun ? " (prévia)" : ""}: ${result.tasksAdded} tarefas sugeridas, ${result.tasksClosed} fechadas.`);
   if (result.limitHit) console.log("Limite de uso do Claude atingido. Rode de novo depois que ele renovar: o que já foi resumido está no cache.");
   console.log(`${args.dryRun ? "Prévia do vault" : "Vault"} em ${result.target}`);
