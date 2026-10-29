@@ -112,5 +112,21 @@
     return { textos, destaques };
   }
 
-  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, ORDEM_COR };
+  // Botoes da gaveta de cada item da fila Voce. Rascunho: aprovar (sai em nome do Gabriel), pedir ajuste ou descartar;
+  // tarefa: responder com texto. O que ja foi respondido espera o ciclo do Copiloto: nenhum botao, so o aviso.
+  function acoesDoItem(item) {
+    if (!item || item.resposta) return [];
+    if (item.tipo === "dar ok") return ["aprovar", "ajuste", "descartar"];
+    return /^T-/.test(String(item.id || "")) ? ["responder"] : [];
+  }
+  function rotuloDaResposta(item) {
+    const r = item && item.resposta;
+    if (!r) return "";
+    const feito = r.acao === "aprovar" ? "Aprovado" : r.acao === "descartar" ? "Descartado" : item.tipo === "dar ok" ? "Ajuste pedido" : "Respondido";
+    return `${feito} ${r.origem === "dm" ? "na DM" : "na tela"} · espera o ciclo`;
+  }
+  // A nota da tarefa no Obsidian, onde esta o que decidir. So o esquema do Obsidian vira link.
+  const linkObsidian = item => (item && /^obsidian:\/\/open\?/.test(String(item.obsidian || "")) ? item.obsidian : "");
+
+  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian, ORDEM_COR };
 });

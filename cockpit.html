@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cockpit da IA</title>
-    <link rel="stylesheet" href="cockpit.css?v=2" />
+    <link rel="stylesheet" href="cockpit.css?v=3" />
     <link rel="stylesheet" href="nav-rail.css?v=1" />
   </head>
   <body class="cockpit" data-coluna="agentes">
@@ -22,7 +22,8 @@
         <div class="topo-dir">
           <div class="vivo" id="vivo" title="A tela se atualiza sozinha a cada 30 s"><span class="pulso" aria-hidden="true"></span><span id="vivoTexto">carregando&hellip;</span></div>
           <label class="busca"><span class="sr">Buscar</span><input id="busca" type="search" placeholder="Buscar agente, rotina ou item" autocomplete="off" /><kbd>/</kbd></label>
-          <button id="atualizar" class="botao" type="button" title="Ler o Copiloto agora (atalho: r)">Atualizar</button>
+          <button id="atualizar" class="botao secundario" type="button" title="Ler o Copiloto agora (atalho: r)">Atualizar</button>
+          <button id="rodarAgora" class="botao" type="button" title="Pede um ciclo do Copiloto agora: ele espera a vez e nunca derruba o que está rodando">Rodar agora</button>
         </div>
       </header>
       <section class="kpis" id="kpis" aria-label="Resumo"></section>
@@ -67,7 +68,7 @@
     </aside>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script src="nav-rail.js?v=1"></script>
-    <script src="cockpit-view.js?v=1"></script>
-    <script src="cockpit.js?v=2"></script>
+    <script src="cockpit-view.js?v=2"></script>
+    <script src="cockpit.js?v=3"></script>
   </body>
 </html>

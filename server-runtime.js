@@ -91,7 +91,9 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       if (url.pathname.startsWith("/api/copiloto/") && !/^application\/json\b/i.test(req.headers["content-type"] || "")) return reply(res, 415, { error: "Envie JSON." });
       if (req.method === "POST" && url.pathname === "/api/copiloto/responder") {
         const resposta = validarResposta(await readJson(req));
-        return reply(res, 200, { ok: true, entrada: await copiloto.responder(resposta) });
+        const entrada = await copiloto.responder(resposta);
+        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // a fila passa a mostrar "espera o ciclo"
+        return reply(res, 200, { ok: true, entrada });
       }
       if (req.method === "POST" && url.pathname === "/api/copiloto/rodar") {
         await readJson(req);

@@ -99,3 +99,29 @@ test("o que mudou entre duas leituras", () => {
   assert.deepEqual([...m.destaques].sort(), ["a", "c", "rotina:R"]);
   assert.deepEqual(V.mudancas(null, depois).textos, []);
 });
+
+test("fila Voce: rascunho aprova, ajusta ou descarta; tarefa responde; o que ja foi respondido espera o ciclo", () => {
+  assert.deepEqual(V.acoesDoItem({ tipo: "dar ok", id: "R-07" }), ["aprovar", "ajuste", "descartar"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "decidir", id: "T-20261029-03" }), ["responder"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "travada", id: "T-20261027-01" }), ["responder"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "aguardando terceiros", id: "T-20261027-02" }), ["responder"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "dar ok", id: "R-07", resposta: { acao: "aprovar", origem: "tela" } }), []);
+  assert.deepEqual(V.acoesDoItem(null), []);
+});
+
+test("fila Voce: rotulo da resposta que espera o ciclo", () => {
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "aprovar", origem: "tela" } }), "Aprovado na tela · espera o ciclo");
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "aprovar", origem: "dm" } }), "Aprovado na DM · espera o ciclo");
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "descartar", origem: "tela" } }), "Descartado na tela · espera o ciclo");
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "responder", origem: "tela" } }), "Ajuste pedido na tela · espera o ciclo");
+  assert.equal(V.rotuloDaResposta({ tipo: "decidir", resposta: { acao: "responder", origem: "tela" } }), "Respondido na tela · espera o ciclo");
+  assert.equal(V.rotuloDaResposta({ tipo: "decidir" }), "");
+});
+
+test("fila Voce: so link do Obsidian vira link clicavel na gaveta", () => {
+  const ok = "obsidian://open?vault=Obsidian%20Vault&file=Seazone%2FTarefas%2FT-20261023-05.md";
+  assert.equal(V.linkObsidian({ obsidian: ok }), ok);
+  assert.equal(V.linkObsidian({ obsidian: "javascript:alert(1)" }), "");
+  assert.equal(V.linkObsidian({ obsidian: "https://site.example" }), "");
+  assert.equal(V.linkObsidian({}), "");
+});

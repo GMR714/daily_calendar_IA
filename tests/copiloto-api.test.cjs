@@ -4,12 +4,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { createApp } = require("../server-runtime");
-const { createCopilotoCommands, validarResposta } = require("../copiloto-command");
+const { createCopilotoCommands, validarResposta, envDoCopiloto } = require("../copiloto-command");
 const { commandFor, DEFAULT_CLI } = require("../cockpit-source");
 
-async function abrir(t, copiloto) {
+async function abrir(t, copiloto, extras = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-copiloto-"));
-  const app = createApp({ file: path.join(directory, "agenda.json"), interpret: async () => ({ mode: "ai", entries: [] }), copiloto });
+  const app = createApp({ file: path.join(directory, "agenda.json"), interpret: async () => ({ mode: "ai", entries: [] }), copiloto, ...extras });
   await new Promise(resolve => app.server.listen(0, "127.0.0.1", resolve));
   t.after(async () => { await new Promise(resolve => app.server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true }); });
   return `http://127.0.0.1:${app.server.address().port}`;
@@ -84,8 +84,17 @@ test("copiloto: a resposta vai pela entrada padrao do cli.py, marcada como vinda
   await comandos.responder({ acao: "responder", item: "T-20261029-03", texto: "opcao B" });
   await comandos.rodar();
   assert.deepEqual(chamadas, [
-    { argumentos: ["entrada", "gravar", "--stdin", "--json"], entrada: { acao: "responder", item: "T-20261029-03", texto: "opcao B", origem: "tela" } },
-    { argumentos: ["ciclo", "agora", "--json"], entrada: undefined }]);
+    { argumentos: ["entrada", "gravar"], entrada: { acao: "responder", item: "T-20261029-03", texto: "opcao B", origem: "tela" } },
+    { argumentos: ["ciclo", "agora"], entrada: undefined }]);
+});
+
+test("copiloto: chave de API da agenda nao vai para o ciclo do Copiloto", () => {
+  const env = envDoCopiloto({ PATH: "C:\\bin", TZ: "America/Sao_Paulo", ANTHROPIC_API_KEY: "chave", ANTHROPIC_BASE_URL: "https://x", COCKPIT_CLI: "c" }, "win32");
+  assert.equal(env.PATH, "C:\\bin");
+  assert.equal(env.COCKPIT_CLI, "c");
+  assert.equal(env.PYTHONIOENCODING, "utf-8");
+  assert.equal("TZ" in env, false);
+  assert.deepEqual(Object.keys(env).filter(k => k.startsWith("ANTHROPIC_")), []);
 });
 
 test("copiloto: validarResposta aceita os ids do Copiloto e recusa o resto", () => {
@@ -98,4 +107,23 @@ test("copiloto: validarResposta aceita os ids do Copiloto e recusa o resto", () 
 test("copiloto: o py -3 cli.py recebe os argumentos de cada comando", () => {
   assert.deepEqual(commandFor({}, "win32", ["ciclo", "agora", "--json"]), { file: "py", args: ["-3", DEFAULT_CLI, "ciclo", "agora", "--json"] });
   assert.deepEqual(commandFor({}, "win32"), { file: "py", args: ["-3", DEFAULT_CLI, "cockpit", "--json"] });
+});
+
+test("copiloto: resposta gravada pede uma leitura nova do cockpit, para a tela mostrar que espera o ciclo", async t => {
+  let releituras = 0;
+  const cockpit = { get: async () => ({ dados: {}, lidoEm: "x", idadeSegundos: 0, atualizando: false, erro: null }),
+    refresh: async () => { releituras += 1; } };
+  const base = await abrir(t, copilotoFalso(), { cockpit });
+  assert.equal((await fetch(base + "/api/cockpit")).status, 200);
+  assert.equal((await post(base, "/api/copiloto/responder", { acao: "aprovar", item: "R-07" })).status, 200);
+  assert.equal(releituras, 1);
+});
+
+test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova dos scripts", async t => {
+  const base = await abrir(t, copilotoFalso());
+  const html = await (await fetch(base + "/cockpit")).text();
+  assert.match(html, /<button id="rodarAgora"/);
+  assert.match(html, /cockpit\.js\?v=3/);
+  assert.match(html, /cockpit-view\.js\?v=2/);
+  assert.match(html, /cockpit\.css\?v=3/);
 });
