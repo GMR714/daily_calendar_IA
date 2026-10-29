@@ -125,3 +125,12 @@ test("fila Voce: so link do Obsidian vira link clicavel na gaveta", () => {
   assert.equal(V.linkObsidian({ obsidian: "https://site.example" }), "");
   assert.equal(V.linkObsidian({}), "");
 });
+
+test("cockpit: servidor da agenda fora do ar vira instrucao clara, nao 'Failed to fetch'", () => {
+  assert.match(V.mensagemDeFalha(new TypeError("Failed to fetch")), /iniciar\.cmd/);
+  assert.match(V.mensagemDeFalha(new TypeError("NetworkError when attempting to fetch resource.")), /servidor da agenda/);
+  assert.match(V.mensagemDeFalha(new TypeError("Load failed")), /servidor da agenda/);
+  // erro de codigo da propria tela nao pode virar "servidor fora do ar"
+  assert.equal(V.mensagemDeFalha(new TypeError("Cannot read properties of undefined (reading 'itens')")), "Cannot read properties of undefined (reading 'itens')");
+  assert.equal(V.mensagemDeFalha(new Error("O servidor respondeu 503.")), "O servidor respondeu 503.");
+});

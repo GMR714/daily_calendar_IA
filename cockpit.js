@@ -84,8 +84,8 @@
       aviso(corpo.erro ? `Mostrando a última leitura. ${corpo.erro}` : "");
       renderizar();
     } catch (erro) {
-      if (!resposta) mostrarFalha(erro.message);
-      else aviso(`Não consegui atualizar: ${erro.message}`);
+      if (!resposta) mostrarFalha(V.mensagemDeFalha(erro));
+      else aviso(`Não consegui atualizar: ${V.mensagemDeFalha(erro)}`);
     } finally {
       carregandoAgora = false;
       marcarVivo();

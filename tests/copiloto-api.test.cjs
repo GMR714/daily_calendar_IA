@@ -123,7 +123,7 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   const base = await abrir(t, copilotoFalso());
   const html = await (await fetch(base + "/cockpit")).text();
   assert.match(html, /<button id="rodarAgora"/);
-  assert.match(html, /cockpit\.js\?v=3/);
-  assert.match(html, /cockpit-view\.js\?v=2/);
+  assert.match(html, /cockpit\.js\?v=4/);
+  assert.match(html, /cockpit-view\.js\?v=3/);
   assert.match(html, /cockpit\.css\?v=3/);
 });
