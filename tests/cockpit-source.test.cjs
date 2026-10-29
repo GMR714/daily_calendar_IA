@@ -1,6 +1,14 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { createCockpitSource, commandFor, DEFAULT_CLI } = require("../cockpit-source");
+const { createCockpitSource, commandFor, childEnv, DEFAULT_CLI } = require("../cockpit-source");
+
+test("no Windows o Python nao recebe o TZ do servidor (o CRT le America/Sao_Paulo errado e adianta a hora)", () => {
+  const win = childEnv({ TZ: "America/Sao_Paulo", PATH: "x" }, "win32");
+  assert.equal(win.TZ, undefined);
+  assert.equal(win.PATH, "x");
+  assert.equal(win.PYTHONIOENCODING, "utf-8");
+  assert.equal(childEnv({ TZ: "America/Sao_Paulo" }, "linux").TZ, "America/Sao_Paulo");
+});
 
 test("cockpit roda o copiloto uma vez, guarda e serve do cache", async () => {
   let calls = 0;

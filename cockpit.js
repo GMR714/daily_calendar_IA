@@ -27,11 +27,15 @@
 
   function lerPreferencias() {
     const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null };
-    try { return { ...padrao, ...JSON.parse(localStorage.getItem("cockpit:ui") || "{}"), busca: "" }; }
-    catch { return { ...padrao, busca: "" }; }
+    let lido = { ...padrao };
+    try { lido = { ...padrao, ...JSON.parse(localStorage.getItem("cockpit:ui") || "{}") }; } catch { /* sem armazenamento */ }
+    const aba = location.hash.slice(1);  // /cockpit#mapa abre direto no mapa
+    if (["painel", "mapa", "hoje"].includes(aba)) lido.aba = aba;
+    return { ...lido, busca: "" };
   }
   function salvarPreferencias() {
     try { const { busca, ...resto } = ui; localStorage.setItem("cockpit:ui", JSON.stringify(resto)); } catch { /* sem armazenamento: só não lembra */ }
+    history.replaceState(null, "", `#${ui.aba}`);
   }
 
   // Elementos sempre montados com texto (nunca HTML vindo dos dados).
@@ -72,6 +76,7 @@
       const corpo = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(corpo.error || `O servidor respondeu ${r.status}.`);
       const anterior = resposta && resposta.dados;
+      corpo.dados = V.legivel(corpo.dados);
       resposta = corpo;
       recebidoEm = Date.now();
       const m = V.mudancas(anterior, corpo.dados);

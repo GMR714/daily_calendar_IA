@@ -50,6 +50,32 @@ test("filtro por busca ignora acento e caixa; por cor e por segmento", () => {
   assert.deepEqual(V.filtrar(DADOS, { segmento: "Copiloto" }).rotinas.map(r => r.nome), ["Copiloto - ciclo"]);
 });
 
+test("fala do Claude sem markdown cru", () => {
+  assert.equal(V.semMarkdown("**O que deu errado:** use `npm test` e veja [o PR #5](https://github.com/x/pull/5). # Fim"),
+    "O que deu errado: use npm test e veja o PR #5. # Fim");
+  assert.equal(V.semMarkdown("## Resumo\n- item __um__"), "Resumo - item um");
+  assert.equal(V.semMarkdown("feito. ## Proximo passo rodar"), "feito. Proximo passo rodar", "titulo que ficou no meio da linha");
+  assert.equal(V.semMarkdown("edite o `__main__.py` e o `**kwargs`"), "edite o __main__.py e o **kwargs", "dentro da crase fica como esta");
+  assert.equal(V.semMarkdown(null), "");
+});
+
+test("dados legiveis: limpa as falas de agentes, Hoje e fila Voce sem mexer no original", () => {
+  const dados = {
+    agentes: [{ id: "a", nome: "A", agora: "**Pronto:** veja `x`", pedido: "## Faça", ultimo_pedido: "[aqui](http://y)", contexto: 10 }],
+    hoje: [{ titulo: "`t`", pedido: "**p**", agora: "a ## B", pasta: "C:\\x" }],
+    voce: { total: 1, itens: [{ id: "R-01", titulo: "**T**", texto: "use `npm`", tipo: "dar ok" }] },
+    rotinas: [{ nome: "R", texto: "rodou" }]
+  };
+  const l = V.legivel(dados);
+  assert.deepEqual(l.agentes, [{ id: "a", nome: "A", agora: "Pronto: veja x", pedido: "Faça", ultimo_pedido: "aqui", contexto: 10 }]);
+  assert.deepEqual(l.hoje, [{ titulo: "t", pedido: "p", agora: "a B", pasta: "C:\\x" }]);
+  assert.deepEqual(l.voce, { total: 1, itens: [{ id: "R-01", titulo: "T", texto: "use npm", tipo: "dar ok" }] });
+  assert.equal(l.rotinas, dados.rotinas);
+  assert.equal(dados.agentes[0].agora, "**Pronto:** veja `x`");
+  assert.deepEqual(V.legivel({ placar: 1 }), { placar: 1 });
+  assert.equal(V.legivel(null), null);
+});
+
 test("linha do dia: posicao em porcentagem dentro das 24 h", () => {
   assert.equal(V.posicaoNoDia("2026-10-29T12:00:00", "2026-10-29"), 50);
   assert.equal(V.posicaoNoDia("2026-10-29T06:00", "2026-10-29"), 25);

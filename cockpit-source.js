@@ -23,10 +23,18 @@ function friendlyError(error) {
   return `Nao consegui ler o Copiloto: ${linha.slice(0, 300)}`;
 }
 
+// O server.js define TZ=America/Sao_Paulo; no Windows o CRT do Python le esse nome como fuso
+// desconhecido com horario de verao e adianta a hora. La o Python fica com o fuso do sistema.
+function childEnv(env = process.env, platform = process.platform) {
+  const saida = { ...env, PYTHONIOENCODING: "utf-8" };
+  if (platform === "win32") delete saida.TZ;
+  return saida;
+}
+
 function runCopiloto({ env = process.env, platform = process.platform, timeoutMs = 120000 } = {}) {
   const { file, args } = commandFor(env, platform);
   return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: { ...env, PYTHONIOENCODING: "utf-8" } },
+    execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: childEnv(env, platform) },
       (error, stdout, stderr) => {
         if (error) return reject(Object.assign(error, { stderr: String(stderr || "") }));
         try { resolve(JSON.parse(stdout)); }
@@ -63,4 +71,4 @@ function createCockpitSource({ run = () => runCopiloto(), ttlMs = 45000, now = (
   return { get, refresh };
 }
 
-module.exports = { createCockpitSource, commandFor, friendlyError, runCopiloto, DEFAULT_CLI };
+module.exports = { createCockpitSource, commandFor, childEnv, friendlyError, runCopiloto, DEFAULT_CLI };

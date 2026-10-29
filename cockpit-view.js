@@ -38,6 +38,38 @@
   }
 
   const semAcento = texto => String(texto || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+  // As falas do Claude chegam com markdown (negrito, crase, link, titulo); na tela vira texto corrido.
+  // O que esta entre crases sai como esta: `__main__.py` nao pode virar main.py.
+  function semMarkdown(texto) {
+    const codigos = [];
+    return String(texto || "")
+      .replace(/`([^`]*)`/g, (_, codigo) => `\u0000${codigos.push(codigo) - 1}\u0000`)
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/(\*\*|__)(.+?)\1/g, "$2")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/(^|\s)#{2,6}\s+/g, "$1")
+      .replace(/\u0000(\d+)\u0000/g, (_, i) => codigos[i])
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  const CAMPOS_FALADOS = ["agora", "pedido", "ultimo_pedido", "titulo", "texto"];
+  function limparFalas(item) {
+    const saida = { ...item };
+    for (const campo of CAMPOS_FALADOS) if (typeof saida[campo] === "string") saida[campo] = semMarkdown(saida[campo]);
+    return saida;
+  }
+
+  // Copia dos dados do Copiloto com as falas ja legiveis (agentes, Hoje e fila Voce).
+  function legivel(dados) {
+    if (!dados) return dados;
+    const saida = { ...dados };
+    if (Array.isArray(dados.agentes)) saida.agentes = dados.agentes.map(limparFalas);
+    if (Array.isArray(dados.hoje)) saida.hoje = dados.hoje.map(limparFalas);
+    if (dados.voce && Array.isArray(dados.voce.itens)) saida.voce = { ...dados.voce, itens: dados.voce.itens.map(limparFalas) };
+    return saida;
+  }
   const corDaFila = item => (item.velho ? "atencao" : "bem");
 
   function filtrar(dados, { busca = "", cor = null, segmento = null } = {}) {
@@ -80,5 +112,5 @@
     return { textos, destaques };
   }
 
-  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, ORDEM_COR };
+  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, ORDEM_COR };
 });
