@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildPrompt, claudeArgs, parseClaudeOutput, validateSummary, summarizeProject } = require("../summarize");
+const { SUMMARY_SCHEMA, buildPrompt, claudeArgs, parseClaudeOutput, validateSummary, summarizeProject } = require("../summarize");
 
 function goodSummary(overrides = {}) {
   return {
@@ -10,6 +10,7 @@ function goodSummary(overrides = {}) {
     mudancas: [],
     tarefasNovas: [{ titulo: "Testar o menu no celular", contexto: "O menu abre com Esc.", prazo: null }],
     tarefasConcluidas: [],
+    tarefasAtualizadas: [],
     ...overrides
   };
 }
@@ -29,6 +30,16 @@ test("prompt traz projeto, dia, estado anterior e o registro", () => {
     assert.ok(prompt.includes(part), part);
   }
   assert.match(buildPrompt({ ...input, previousState: null, knownPlaces: [] }), /primeiro registro deste projeto/);
+});
+
+test("prompt manda atualizar a tarefa aberta que o dia continuou, em vez de criar outra", () => {
+  const long = "x".repeat(500);
+  const prompt = buildPrompt({ ...input, openTasks: [{ id: "sync-a", titulo: "Testar o menu no celular", contexto: `Abre com Esc. ${long}` }] });
+  assert.match(prompt, /\[sync-a\] Testar o menu no celular — onde parou: Abre com Esc\./);
+  assert.ok(!prompt.includes(long), "contexto da tarefa aberta vai cortado");
+  assert.match(prompt, /- tarefasAtualizadas: /);
+  assert.match(prompt, /continua uma tarefa aberta[^\n]*tarefasAtualizadas/);
+  assert.ok(SUMMARY_SCHEMA.required.includes("tarefasAtualizadas"));
 });
 
 test("chamada do claude não tem ferramentas, plugins, MCP nem grava sessão", () => {
@@ -56,6 +67,21 @@ test("validação aceita o resumo certo e aponta o que falta", () => {
   assert.ok(bad.errors.some(e => e.includes("estadoAtual")));
   assert.ok(bad.errors.some(e => e.includes("feitoNoDia")));
   assert.equal(validateSummary(null).ok, false);
+  assert.ok(validateSummary({ ...goodSummary(), tarefasAtualizadas: [{ feito: "x", contexto: "y" }] }).errors.some(e => e.includes("tarefasAtualizadas")));
+  assert.ok(validateSummary({ ...goodSummary(), tarefasAtualizadas: "x" }).errors.some(e => e.includes("tarefasAtualizadas")));
+  // Campo novo ausente vale como lista vazia: não perde o resumo do dia por causa dele.
+  assert.equal(validateSummary({ ...goodSummary(), tarefasAtualizadas: undefined }).ok, true);
+});
+
+test("resumo sem o campo de tarefas atualizadas sai com a lista vazia", async () => {
+  const { tarefasAtualizadas, ...old } = goodSummary();
+  const result = await summarizeProject(input, { runner: async () => old });
+  assert.deepEqual(result.summary.tarefasAtualizadas, []);
+});
+
+test("atualização de tarefa sai limpa, sem espaço sobrando", async () => {
+  const result = await summarizeProject(input, { runner: async () => goodSummary({ tarefasAtualizadas: [{ id: " sync-a ", feito: " Testou no Android. ", contexto: " Falta o iPhone. " }] }) });
+  assert.deepEqual(result.summary.tarefasAtualizadas, [{ id: "sync-a", feito: "Testou no Android.", contexto: "Falta o iPhone." }]);
 });
 
 test("tenta de novo uma vez quando a resposta vem inválida", async () => {

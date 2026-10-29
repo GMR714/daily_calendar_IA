@@ -123,7 +123,7 @@ async function runDaily({
     log(`Rodada${dryRun ? " (prévia)" : ""} de ${range.since} a ${range.until}, teto de ${maxSummaries} resumos.`);
     const started = Date.now();
     const result = await run({ ...vaultOptions, dataDir, since: range.since, until: range.until, maxSummaries, dryRun, today, log });
-    log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.tasksAdded} tarefas sugeridas, ${result.tasksClosed} fechadas (${((Date.now() - started) / 1000).toFixed(1)}s).`);
+    log(`${result.projectDays} dias de projeto: ${result.summarized} resumidos, ${result.cached} do cache, ${result.failed} falharam, ${result.pending} pendentes; ${result.tasksAdded} tarefas sugeridas, ${result.tasksUpdated || 0} atualizadas, ${result.tasksClosed} fechadas (${((Date.now() - started) / 1000).toFixed(1)}s).`);
 
     const next = nextState(state, { until: range.until, failedDays: result.failedDays, pendingDays: result.pendingDays });
     if (next.desistiu.length) log(`Desisti de ${next.desistiu.join(", ")} depois de ${MAX_ATTEMPTS} rodadas com falha; veja as sessões desses dias.`);

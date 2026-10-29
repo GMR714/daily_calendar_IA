@@ -75,11 +75,34 @@ Sem `Diário/`, a lista de sessões avulsas (pastas fora de projeto) vai para o 
 últimos 30 dias. Como cada rodada só vê o dia anterior, a lista acumula em
 `sync-data/avulsas.json`.
 
+## Atualizar a tarefa em vez de criar outra (2º pedido, 29/10)
+
+> "quero que vá atualizando o que já tiver no obsidian no tema de uma tarefa em vez de sempre
+> ficar criando um tema novo"
+
+Hoje a IA só tem duas saídas para as tarefas abertas: sugerir uma nova ou dar uma como feita. O
+trabalho que faz uma tarefa andar sem fechá-la vira uma sugestão nova com outras palavras (cerca
+de 40 por dia; 145 abertas em 29/10).
+
+- **Resumo:** campo novo `tarefasAtualizadas: [{ id, feito, contexto }]`. São as tarefas abertas
+  que o dia fez andar sem concluir: `feito` diz o que andou nesse dia, e `contexto` é o novo
+  "onde parou", que substitui o anterior. A regra de `tarefasNovas` passa a ser: próximo passo que
+  continua uma tarefa aberta vai para `tarefasAtualizadas`, não vira tarefa nova.
+- **Prompt:** as tarefas abertas vão com o contexto atual (cortado em 300 caracteres), para a IA
+  reconhecer a continuação.
+- **Agenda:** a tarefa ganha `progress: [{ day, text }]` (sem repetir o mesmo dia e texto) e o
+  contexto novo. O `updatedAt` não muda: ele data a última decisão no app (confirmar, descartar),
+  e a mescla do app é por conteúdo.
+- **Vault:** o registro da tarefa ganha "DD/MM/AAAA — avançou: …" em ordem de data. O histórico
+  do projeto ganha "Avançou [[tarefa]]" no dia, e a lista de abertas mostra "avançou em DD/MM".
+- **Cache:** o `PROMPT_VERSION` não sobe. Os resumos antigos continuam valendo (sem o campo novo,
+  nada é atualizado neles); o campo vale a partir da próxima rodada.
+
 ## Fora de escopo
 
-- Mudar o que a IA resume (o prompt e o cache ficam como estão; nada é resumido de novo).
-- Ligar cada item de "feito no dia" à tarefa que ele avançou (pediria um campo novo no resumo).
-  Fica como próximo passo, se o histórico por projeto não bastar.
+- Resumir de novo os dias antigos: o campo novo vale da próxima rodada em diante.
+- Juntar as sugeridas repetidas que já existem (145 em 29/10). Dá para descartar no app ou fazer
+  uma limpeza à parte.
 - Gravar a nota da tarefa na hora do clique no app: a nota reflete o app na rodada seguinte.
 - Juntar estas tarefas com as de `Seazone/Tarefas/` (copiloto). Os campos já batem; juntar as
   duas numa Base só é uma decisão à parte.
