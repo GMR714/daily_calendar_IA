@@ -106,6 +106,17 @@ Mensagens normais geram propostas, como na interface. Uma proposta antiga e recu
 
 **Audio anexado no Telegram ainda nao e transcrito.** Use o ditado do teclado para enviar texto. O ditado na pagina depende do navegador e pode usar o servico de reconhecimento do proprio navegador, nao o Ollama.
 
+## Cockpit Da IA
+
+O link **Cockpit da IA** na barra lateral abre `/cockpit`, uma tela com o que os agentes do Claude Code estao fazendo, o que espera sua decisao e as rotinas agendadas. Os dados vem do Copiloto (`cli.py cockpit --json`). A aba **Painel** junta o semaforo (problema, atencao, bem, sem sinal), o que olhar agora, os agentes com o contexto de cada um, a fila **Voce** e as rotinas na linha das 24 h. **Mapa** desenha os agentes vivos do notebook, com a orquestradora ligada aos workers dela, e as rotinas na nuvem. **Hoje** lista as sessoes do dia por frente. Os numeros do topo filtram a tela; `/` busca, `r` atualiza e `Esc` fecha o detalhe. **Levar para a agenda** cria uma tarefa de 30 minutos e prioridade alta para hoje, sem repetir o mesmo item.
+
+O servidor roda o Copiloto quando a tela pede e guarda a leitura por 45 s; a tela atualiza sozinha a cada 30 s. Sem o Copiloto, so a tela do cockpit mostra o erro, e a agenda continua igual. O caminho padrao e o abaixo; mude no `.env` se o Copiloto estiver em outra pasta.
+
+```dotenv
+COCKPIT_CLI=C:\Dev\Dev Seazone\copiloto\cli.py
+COCKPIT_PYTHON=py
+```
+
 ## Dados E Seguranca
 
 - `agenda-data.json` e a fonte compartilhada entre navegador e Telegram.
@@ -149,3 +160,6 @@ Teste visual opcional: instale Playwright em um ambiente de desenvolvimento ou a
 - `telegram.js`: autorizacao por chat, comandos e propostas.
 - `app.js`, `product-ui.js`: calendario, editores, feedback e sincronizacao.
 - `styles.css`, `product.css`: estilos base e interface reorganizada.
+- `cockpit-source.js`: leitura do Copiloto para o cockpit, com cache e erro legivel.
+- `cockpit-view.js`: regras puras da tela do cockpit (grupos, filtros, contexto, o que mudou, texto sem markdown).
+- `cockpit.html`, `cockpit.js`, `cockpit.css`: tela Cockpit da IA.
