@@ -66,6 +66,7 @@ Três entregas. Cada uma tem um PR no copiloto (dados e comandos) e um na agenda
    - **Sessão trabalhando:** guarda em `estado/para_sessoes.jsonl` e devolve `na-fila`.
    - **Sessão parada ou esperando você:** entrega na hora, como a orquestradora já faz em todo ciclo. Se o processo está vivo, dá `claude stop` e espera ele sair. Depois roda `claude --bg --resume <id longo> "<texto>"`, sem flags e na pasta da sessão.
 2. **Copiloto:** `cli.py sessao entregar` entrega o que está na fila para quem já parou. Respostas para a mesma sessão vão juntas, na ordem. Quem chama é a agenda, a cada 20 s enquanto houver fila. O ciclo também chama, como reserva.
+   - A sessão que termina o passo some do `claude agents` por um instante. Por isso a entrega lê a lista com `--all`, e a resposta de uma sessão que não aparece espera até 30 min antes de falhar.
 3. **Copiloto:** `cli.py sessao parar <sessão>` roda `claude stop`. A conversa fica guardada.
 4. **Agenda:**
    - `POST /api/sessoes/<sessão>/responder` e `POST /api/sessoes/<sessão>/parar`, com a mesma proteção das rotas `/api/copiloto/*`;
@@ -107,11 +108,11 @@ Três entregas. Cada uma tem um PR no copiloto (dados e comandos) e um na agenda
 - [x] No Mapa, cada bola é um projeto ou uma tarefa, e as sessões sem tarefa estão em "Sem tarefa", por pasta.
 - [x] O clique num projeto ou numa tarefa mostra as sessões e subsessões dele, cada uma com estado e cor. O clique numa sessão abre a conversa.
 - [x] A conversa de uma sessão de 242 MB abre em poucos segundos, das falas mais novas para trás. Medido em 29/10: de 0,6 a 1,3 s, e as anteriores em 0,65 s.
-- [ ] Responder a uma sessão esperando você faz ela retomar com o texto, no mesmo chat e sem cópia. Responder a uma sessão trabalhando não a interrompe: a resposta vai quando ela parar.
-- [ ] Sessão aberta num terminal não aceita resposta pela tela, e a gaveta explica por quê.
+- [x] Responder a uma sessão esperando você faz ela retomar com o texto, no mesmo chat e sem cópia. Responder a uma sessão trabalhando não a interrompe: a resposta vai quando ela parar. Conferido em 29/10 com sessões de teste. Pela tela, a sessão retomou com o mesmo id em cerca de 6 s e respondeu "quarta" e depois "quinta". Pelo CLI, a resposta a uma sessão trabalhando ficou na fila e foi entregue quando ela parou.
+- [x] Sessão aberta num terminal não aceita resposta pela tela, e a gaveta explica por quê. Conferido em 29/10 com dados falsos: a gaveta mostra "Aberta num terminal: responda por lá.", sem caixa de resposta e sem Parar.
 - [ ] O ditado põe o texto na caixa, e nada é enviado sem o clique dele.
 - [ ] O Ouvir fala no máximo 40 s, sem código. O normal fica em cerca de 25 s.
-- [ ] Pedido de outro site ou de outra máquina é barrado antes de chegar ao Copiloto.
+- [x] Pedido de outro site ou de outra máquina é barrado antes de chegar ao Copiloto. Nos testes de `tests/sessoes-api.test.cjs`: Origin de outro site dá 403, POST sem JSON dá 415 e `/api/sessoes/*` só atende este computador, até no GET.
 - [x] Em 1536×730 o cockpit cabe sem a página rolar. Também em 1024×700. A largura do desenho acompanha a da tela.
 
 ## Fora do escopo

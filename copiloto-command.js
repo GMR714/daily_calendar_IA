@@ -30,6 +30,15 @@ function validarLeitura({ sessao, sub, antes } = {}) {
   return { sessao: String(sessao), sub: sub ? String(sub) : null, antes: antes ? Number(antes) : null };
 }
 
+// Resposta para uma sessao do Claude (Mapa de trabalho, entrega 2): o Copiloto entrega na hora ou guarda ate ela parar.
+function validarRespostaSessao({ sessao, texto } = {}) {
+  const pedido = validarLeitura({ sessao });
+  const limpo = String(texto || "").trim();
+  if (!limpo) throw Object.assign(new Error("Escreva a resposta."), { status: 400 });
+  if (limpo.length > 8000) throw Object.assign(new Error("Resposta longa demais: ate 8 mil caracteres."), { status: 400 });
+  return { sessao: pedido.sessao, texto: limpo };
+}
+
 function erroDoComando(error) {
   const texto = `${error?.stderr || ""} ${error?.message || ""}`;
   if (/invalid choice: '(entrada|ciclo)'/i.test(texto)) {
@@ -67,7 +76,11 @@ function createCopilotoCommands({ run = runCli } = {}) {
     responder: resposta => run(["entrada", "gravar"], { entrada: { ...resposta, origem: "tela" } }),
     rodar: () => run(["ciclo", "agora"]),
     lerSessao: ({ sessao, sub, antes }) => run(["sessao", "ler", sessao, ...(sub ? ["--sub", sub] : []), ...(antes !== null && antes !== undefined ? ["--antes", String(antes)] : [])]),
+    // parar e retomar uma sessao leva ate ~45 s (espera o processo sair); a fila pode ter mais de uma sessao
+    responderSessao: ({ sessao, texto }) => run(["sessao", "responder"], { entrada: { sessao, texto, origem: "tela" }, timeoutMs: 120000 }),
+    entregarSessoes: () => run(["sessao", "entregar"], { timeoutMs: 300000 }),
+    pararSessao: sessao => run(["sessao", "parar", sessao], { timeoutMs: 90000 }),
   };
 }
 
-module.exports = { createCopilotoCommands, validarResposta, validarLeitura, erroDoComando, envDoCopiloto, runCli };
+module.exports = { createCopilotoCommands, validarResposta, validarLeitura, validarRespostaSessao, erroDoComando, envDoCopiloto, runCli };

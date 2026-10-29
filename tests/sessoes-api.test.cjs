@@ -9,9 +9,9 @@ const { rotaSoLocal } = require("../request-guard");
 
 const SID = "bed96b72-86d1-400a-8a02-ebcacaf9813e";
 
-async function abrir(t, copiloto) {
+async function abrir(t, copiloto, extras = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-sessoes-"));
-  const app = createApp({ file: path.join(directory, "agenda.json"), interpret: async () => ({ mode: "ai", entries: [] }), copiloto });
+  const app = createApp({ file: path.join(directory, "agenda.json"), interpret: async () => ({ mode: "ai", entries: [] }), copiloto, ...extras });
   await new Promise(resolve => app.server.listen(0, "127.0.0.1", resolve));
   t.after(async () => { await new Promise(resolve => app.server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true }); });
   return `http://127.0.0.1:${app.server.address().port}`;
@@ -74,4 +74,66 @@ test("sessoes: Copiloto antigo, sem o comando sessao, explica o que falta", () =
   const texto = erroDoComando({ stderr: "copiloto: error: argument grupo: invalid choice: 'sessao' (choose from 'tarefa', 'msg')" });
   assert.match(texto, /sess/i);
   assert.match(texto, /git pull/);
+});
+
+// ------------------------------------------------------------------ entrega 2: responder e parar
+const post = (base, caminho, body, headers = { "Content-Type": "application/json" }) =>
+  fetch(base + caminho, { method: "POST", headers, body: JSON.stringify(body) }).then(async r => ({ status: r.status, body: await r.json() }));
+function copilotoDeResposta(estado = "entregue") {
+  const chamadas = { responder: [], parar: [], entregar: 0 };
+  let pendentes = estado === "na-fila" ? 2 : 0;
+  return { chamadas,
+    responderSessao: async r => { chamadas.responder.push(r); return { estado, id: "P-20261029-190606-1" }; },
+    pararSessao: async s => { chamadas.parar.push(s); return { estado: "parada" }; },
+    entregarSessoes: async () => { chamadas.entregar += 1; pendentes = Math.max(0, pendentes - 1); return { entregues: [], pendentes, erros: [] }; } };
+}
+
+test("sessoes: responder leva o texto ao Copiloto e devolve se entregou", async t => {
+  const copiloto = copilotoDeResposta("entregue");
+  const base = await abrir(t, copiloto);
+  const r = await post(base, `/api/sessoes/${SID}/responder`, { texto: "  pode seguir  " });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { ok: true, estado: "entregue", id: "P-20261029-190606-1" });
+  assert.deepEqual(copiloto.chamadas.responder, [{ sessao: SID, texto: "pode seguir" }]);
+});
+
+test("sessoes: resposta vazia, longa, sem JSON ou de outro site nao chega ao Copiloto", async t => {
+  const copiloto = copilotoDeResposta();
+  const base = await abrir(t, copiloto);
+  assert.equal((await post(base, `/api/sessoes/${SID}/responder`, { texto: "  " })).status, 400);
+  assert.equal((await post(base, `/api/sessoes/${SID}/responder`, { texto: "x".repeat(8001) })).status, 400);
+  assert.equal((await post(base, "/api/sessoes/xyz/responder", { texto: "oi" })).status, 400);
+  assert.equal((await post(base, `/api/sessoes/${SID}/responder`, { texto: "oi" }, { "Content-Type": "text/plain" })).status, 415);
+  assert.equal((await post(base, `/api/sessoes/${SID}/parar`, {}, { "Content-Type": "application/x-www-form-urlencoded" })).status, 415);
+  assert.equal((await post(base, `/api/sessoes/${SID}/responder`, { texto: "oi" }, { "Content-Type": "application/json", Origin: "http://site.example" })).status, 403);
+  assert.deepEqual([copiloto.chamadas.responder.length, copiloto.chamadas.parar.length], [0, 0]);
+});
+
+test("sessoes: parar pede ao Copiloto o claude stop da sessao", async t => {
+  const copiloto = copilotoDeResposta();
+  const base = await abrir(t, copiloto);
+  const r = await post(base, `/api/sessoes/${SID}/parar`, {});
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { ok: true, estado: "parada" });
+  assert.deepEqual(copiloto.chamadas.parar, [SID]);
+});
+
+test("sessoes: resposta na fila liga a entrega, que roda ate a fila esvaziar e para", async t => {
+  const copiloto = copilotoDeResposta("na-fila");
+  const base = await abrir(t, copiloto, { entregaMs: 15 });
+  assert.equal((await post(base, `/api/sessoes/${SID}/responder`, { texto: "depois" })).body.estado, "na-fila");
+  await new Promise(r => setTimeout(r, 200));
+  assert.equal(copiloto.chamadas.entregar, 2);
+});
+
+test("sessoes: o cli.py recebe sessao responder (texto pela entrada padrao), entregar e parar", async () => {
+  const chamadas = [];
+  const comandos = createCopilotoCommands({ run: async (argumentos, opcoes = {}) => { chamadas.push({ argumentos, entrada: opcoes.entrada }); return {}; } });
+  await comandos.responderSessao({ sessao: SID, texto: "oi" });
+  await comandos.entregarSessoes();
+  await comandos.pararSessao(SID);
+  assert.deepEqual(chamadas, [
+    { argumentos: ["sessao", "responder"], entrada: { sessao: SID, texto: "oi", origem: "tela" } },
+    { argumentos: ["sessao", "entregar"], entrada: undefined },
+    { argumentos: ["sessao", "parar", SID], entrada: undefined }]);
 });

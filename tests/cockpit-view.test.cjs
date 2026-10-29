@@ -227,3 +227,13 @@ test("conversa: negrito, codigo, titulo e link http viram trechos; outro esquema
   assert.deepEqual(V.trechosDaFala("[x](javascript:alert(1))"), [{ tipo: "texto", texto: "[x](javascript:alert(1))" }]);
   assert.deepEqual(V.trechosDaFala(""), []);
 });
+
+test("sessao: terminal nao responde pela tela; trabalhando manda quando parar; viva pode parar", () => {
+  assert.deepEqual(V.acoesDaSessao({ tipo: "interativa", estado: "parada", viva: true }),
+    { pode: false, motivo: "Aberta num terminal: responda por lá.", enviar: "", parar: false, fila: 0 });
+  assert.deepEqual(V.acoesDaSessao({ tipo: "em segundo plano", estado: "trabalhando", viva: true, na_fila: 2 }),
+    { pode: true, motivo: "", enviar: "Mandar quando parar", parar: true, fila: 2 });
+  assert.deepEqual(V.acoesDaSessao({ tipo: "em segundo plano", estado: "esperando você: R-77", viva: false }),
+    { pode: true, motivo: "", enviar: "Enviar", parar: false, fila: 0 });
+  assert.equal(V.acoesDaSessao(null).pode, false);
+});
