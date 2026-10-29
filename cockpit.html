@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cockpit da IA</title>
-    <link rel="stylesheet" href="cockpit.css?v=3" />
+    <link rel="stylesheet" href="cockpit.css?v=4" />
     <link rel="stylesheet" href="nav-rail.css?v=1" />
   </head>
   <body class="cockpit" data-coluna="agentes">
@@ -55,7 +55,11 @@
           </div>
         </section>
         <section id="aba-mapa" class="aba" hidden>
-          <div class="mapa-caixa"><svg id="mapa" viewBox="0 0 1100 660" role="img" aria-label="Mapa dos agentes, da fila e das rotinas"></svg></div>
+          <div class="mapa-topo" id="mapaTopo" hidden>
+            <button id="voltarMapa" class="botao pequeno secundario" type="button" title="Voltar ao Mapa (Esc)">&larr; Mapa</button>
+            <span class="mapa-trilha" id="mapaTrilha"></span>
+          </div>
+          <div class="mapa-caixa"><svg id="mapa" viewBox="0 0 1100 660" role="img" aria-label="Mapa dos projetos, tarefas, sessões, da fila e das rotinas"></svg></div>
           <p class="legenda" id="legenda"></p>
         </section>
         <section id="aba-hoje" class="aba" hidden><div id="hoje"></div></section>
@@ -68,7 +72,7 @@
     </aside>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script src="nav-rail.js?v=1"></script>
-    <script src="cockpit-view.js?v=2"></script>
-    <script src="cockpit.js?v=3"></script>
+    <script src="cockpit-view.js?v=4"></script>
+    <script src="cockpit.js?v=5"></script>
   </body>
 </html>

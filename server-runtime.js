@@ -6,8 +6,8 @@ const Planner = require("./planner-core");
 const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
-const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts } = require("./request-guard");
-const { createCopilotoCommands, validarResposta } = require("./copiloto-command");
+const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal } = require("./request-guard");
+const { createCopilotoCommands, validarResposta, validarLeitura } = require("./copiloto-command");
 const { execFile } = require("node:child_process");
 
 // Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
@@ -85,8 +85,7 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       if (!hostPermitido(req.headers.host, hostsExtras)) return reply(res, 403, { error: "Endereco nao permitido. Abra a agenda por localhost ou 127.0.0.1, ou inclua o nome em AGENDA_HOSTS." });
       const url = new URL(req.url, `http://${req.headers.host}`);
       if (!origemPermitida({ method: req.method, origin: req.headers.origin, host: req.headers.host })) return reply(res, 403, { error: "Origem nao permitida." });
-      const comando = url.pathname === "/api/overlay/abrir" || url.pathname.startsWith("/api/copiloto/");
-      if (comando && !pedidoLocal(req.socket.remoteAddress)) return reply(res, 403, { error: "Esta acao so vale neste computador." });
+      if (rotaSoLocal(url.pathname) && !pedidoLocal(req.socket.remoteAddress)) return reply(res, 403, { error: "Esta acao so vale neste computador." });
       // Responder ao Copiloto pode mandar mensagem em nome do Gabriel: so JSON, que de outro site exige pre-checagem.
       if (url.pathname.startsWith("/api/copiloto/") && !/^application\/json\b/i.test(req.headers["content-type"] || "")) return reply(res, 415, { error: "Envie JSON." });
       if (req.method === "POST" && url.pathname === "/api/copiloto/responder") {
@@ -98,6 +97,12 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       if (req.method === "POST" && url.pathname === "/api/copiloto/rodar") {
         await readJson(req);
         return reply(res, 200, { ok: true, ...(await copiloto.rodar()) });
+      }
+      // Mapa de trabalho: a conversa de uma sessao (ou de um subagente dela), do fim para tras.
+      const conversa = /^\/api\/sessoes\/([^/]+)\/conversa$/.exec(url.pathname);
+      if (req.method === "GET" && conversa) {
+        const pedido = validarLeitura({ sessao: conversa[1], sub: url.searchParams.get("sub"), antes: url.searchParams.get("antes") });
+        return reply(res, 200, await copiloto.lerSessao(pedido));
       }
       if (req.method === "GET" && publicFiles[url.pathname]) {
         const name = publicFiles[url.pathname];
