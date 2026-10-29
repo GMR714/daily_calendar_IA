@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test tests/*.test.cjs test/*.test.js sync/test/*.test.js",
-    "check": "node --check app.js && node --check product-ui.js && node --check server.js && node --check server-runtime.js && node --check agenda-store.js && node --check planner-core.js && node --check overlay-core.js && node --check ollama.js && node --check claude.js && node --check claude-cli.js && node --check ai-provider.js && node --check telegram.js && node --check cockpit-source.js && node --check cockpit-view.js && node --check cockpit.js && node --check nav-rail.js && node --check agenda-layout.js",
+    "check": "node --check app.js && node --check product-ui.js && node --check server.js && node --check server-runtime.js && node --check agenda-store.js && node --check planner-core.js && node --check overlay-core.js && node --check ollama.js && node --check claude.js && node --check claude-cli.js && node --check ai-provider.js && node --check telegram.js && node --check cockpit-source.js && node --check cockpit-view.js && node --check cockpit.js && node --check nav-rail.js && node --check agenda-layout.js && node --check request-guard.js",
     "sync": "node sync/run.js",
     "sync:diaria": "node sync/daily.js"
   }

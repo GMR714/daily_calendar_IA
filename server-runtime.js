@@ -6,6 +6,7 @@ const Planner = require("./planner-core");
 const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
+const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts } = require("./request-guard");
 const { execFile } = require("node:child_process");
 
 // Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
@@ -30,8 +31,9 @@ function abrirPainelFlutuante({ serverUrl }) {
   });
 }
 
-function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json") }) {
+function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS }) {
   const store = createStore(file);
+  const hostsExtras = listaDeHosts(hosts);
   const proposals = new Map();
   let cockpitSource = cockpit;
   const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js",
@@ -79,8 +81,10 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
   }
   const server = http.createServer(async (req, res) => {
     try {
+      if (!hostPermitido(req.headers.host, hostsExtras)) return reply(res, 403, { error: "Endereco nao permitido. Abra a agenda por localhost ou 127.0.0.1, ou inclua o nome em AGENDA_HOSTS." });
       const url = new URL(req.url, `http://${req.headers.host}`);
-      if (req.method === "POST" && req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return reply(res, 403, { error: "Origem nao permitida." });
+      if (!origemPermitida({ method: req.method, origin: req.headers.origin, host: req.headers.host })) return reply(res, 403, { error: "Origem nao permitida." });
+      if (url.pathname === "/api/overlay/abrir" && !pedidoLocal(req.socket.remoteAddress)) return reply(res, 403, { error: "Esta acao so vale neste computador." });
       if (req.method === "GET" && publicFiles[url.pathname]) {
         const name = publicFiles[url.pathname];
         const type = { ".html": "text/html", ".css": "text/css", ".js": "application/javascript" }[path.extname(name)];

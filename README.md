@@ -36,6 +36,7 @@ O servidor carrega `.env` automaticamente, quando existir. `.env.example` lista 
 ```dotenv
 PORT=8787
 HOST=127.0.0.1
+AGENDA_HOSTS=
 TZ=America/Sao_Paulo
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=gemma4:31b-cloud
@@ -123,6 +124,7 @@ COCKPIT_PYTHON=py
 - Cada gravacao tem revisao e escrita atomica. As 30 versoes anteriores ficam em `.agenda-backups/`.
 - Arquivos corrompidos causam erro explicito; nao sao substituidos por uma agenda vazia.
 - A sincronizacao compara a versao anterior, a edicao local e a versao do servidor. Alteracoes independentes sao combinadas; conflitos ficam visiveis, sem sobrescrever em silencio.
+- O servidor so atende quem chega por `localhost`, `127.0.0.1` ou `[::1]`. Um site que aponte o proprio nome para este computador (DNS rebinding) recebe 403; para abrir a agenda por outro nome, inclua-o em `AGENDA_HOSTS`. Pedidos que alteram dados precisam vir da propria agenda, e as acoes que fazem este computador agir (abrir o painel, falar com o Copiloto) so valem vindas dele.
 - O navegador guarda rascunhos e alteracoes pendentes durante falhas de conexao. Uma copia local anterior pode ser exportada em Ajustes.
 - Para restaurar manualmente um backup do servidor, pare o servidor, preserve o arquivo atual e substitua `agenda-data.json` por uma copia valida da pasta de backups. Reinicie e use a versao do servidor no navegador se houver conflito.
 - `.env`, dados, backups, logs e cursor do Telegram ficam fora do Git.
