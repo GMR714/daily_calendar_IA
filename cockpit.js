@@ -29,7 +29,7 @@
   const $ = id => document.getElementById(id);
 
   function lerPreferencias() {
-    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes" };
+    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes", rotinas: "fechada" };
     let lido = { ...padrao };
     try { lido = { ...padrao, ...JSON.parse(localStorage.getItem("cockpit:ui") || "{}") }; } catch { /* sem armazenamento */ }
     const aba = location.hash.slice(1);  // /cockpit#mapa abre direto no mapa
@@ -80,6 +80,9 @@
       if (!r.ok) throw new Error(corpo.error || `O servidor respondeu ${r.status}.`);
       const anterior = resposta && resposta.dados;
       corpo.dados = V.legivel(corpo.dados);
+      const filtrado = V.semExcluidas(corpo.dados, excluidas);  // a leitura pode ser de antes da exclusao
+      corpo.dados = filtrado.dados;
+      excluidas = filtrado.pendentes;
       resposta = corpo;
       recebidoEm = Date.now();
       const m = V.mudancas(anterior, corpo.dados);
@@ -152,6 +155,47 @@
       toast(erro.message);
     }
   }
+  // Excluir tarefa (29/10): a nota fica no vault com status descartada e o card sai da fila e do Mapa na hora.
+  // O primeiro clique so pede confirmacao, como no Descartar e no Parar.
+  let excluidas = new Set();  // tarefas excluidas que a leitura do Copiloto ainda nao mostra fechadas
+  function botaoComConfirmacao(classe, rotulo, title, acao) {
+    return h("button", { class: `${classe} perigo`, type: "button", "data-rotulo": rotulo, title, onclick: ev => {
+      ev.stopPropagation();
+      const b = ev.currentTarget;
+      if (b.dataset.confirmar) return acao(b);
+      b.dataset.confirmar = "1";
+      b.textContent = "Confirmar";
+      setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.confirmar; b.textContent = rotulo; } }, 4000);
+    } }, rotulo);
+  }
+  const botaoExcluir = (id, classe, rotulo) => botaoComConfirmacao(classe, rotulo,
+    "Fecha a tarefa como descartada. A nota fica no vault, com uma linha no registro.", b => excluirTarefa(id, b));
+  function sessoesVivasDaTarefa(id) {
+    const t = (resposta && resposta.dados && resposta.dados.trabalho) || {};
+    const tarefa = (t.projetos || []).flatMap(p => p.tarefas).find(x => x.id === id);
+    return ((tarefa && tarefa.sessoes) || []).map(sid => (t.sessoes || {})[sid]).filter(s => s && s.viva).map(s => s.nome);
+  }
+  async function excluirTarefa(id, botao) {
+    const vivas = sessoesVivasDaTarefa(id);
+    botao.disabled = true;
+    botao.textContent = "Excluindo…";
+    try {
+      const r = await fetch("/api/copiloto/excluir-tarefa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tarefa: id }) });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "Não consegui excluir a tarefa.");
+      excluidas.add(id);
+      resposta.dados = V.semExcluidas(resposta.dados, excluidas).dados;
+      if (gaveta && (gaveta.tipo === "voce" || gaveta.tipo === "tarefa") && gaveta.id === id) fecharGaveta();
+      toast(V.avisoDaExclusao(vivas));
+      renderizar();
+      carregar(true);
+    } catch (erro) {
+      botao.disabled = false;
+      delete botao.dataset.confirmar;
+      botao.textContent = botao.dataset.rotulo;
+      toast(erro.message);
+    }
+  }
   async function rodarAgora() {
     const botao = $("rodarAgora");
     botao.disabled = true;
@@ -202,7 +246,7 @@
       aprovar,
       acoes.includes("ajuste") ? h("button", { class: "botao pequeno secundario", type: "button", onclick: ev => comTexto("responder", ev) }, "Pedir ajuste") : null,
       acoes.includes("responder") ? h("button", { class: "botao pequeno", type: "button", onclick: ev => comTexto("responder", ev) }, "Responder") : null,
-      descartar));
+      descartar, acoes.includes("excluir") ? botaoExcluir(i.id, "botao pequeno", "Excluir tarefa") : null));
   }
 
   // ------------------------------------------------------------------ estado geral
@@ -248,6 +292,11 @@
     document.querySelectorAll(".abas button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.aba === ui.aba)));
     for (const aba of ["painel", "mapa", "hoje"]) $("aba-" + aba).hidden = ui.aba !== aba;
     document.body.dataset.coluna = ui.coluna; // em tela estreita, as colunas viram abas
+    document.body.dataset.rotinas = ui.rotinas;  // em tela larga, Rotinas recolhida vira uma faixa com o selo
+    const selo = V.resumoRotinas(d.rotinas);
+    $("rotinas-selo").textContent = selo.texto;
+    $("rotinas-selo").className = `selo ${selo.cor}`;
+    $("abrirRotinas").setAttribute("aria-expanded", String(ui.rotinas === "aberta"));
     document.querySelectorAll(".colunas-abas button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.coluna === ui.coluna)));
     $("alertas").replaceChildren();
     renderKpis(d);
@@ -325,13 +374,18 @@
     const levado = naAgenda.has(i.id);
     const abrir = () => abrirGaveta("voce", i.id);
     const espera = V.rotuloDaResposta(i);
+    const possiveis = V.acoesDoItem(i);
     const acoes = [
       espera ? h("span", { class: "espera-ciclo", title: "O Copiloto trata no próximo ciclo; Rodar agora, no topo, adianta" }, espera)
-        : V.acoesDoItem(i).length ? h("button", { class: "mini principal", type: "button",
+        : possiveis.length ? h("button", { class: "mini principal", type: "button",
           title: i.tipo === "dar ok" ? "Ler a mensagem inteira e aprovar, pedir ajuste ou descartar" : "Responder ao Copiloto",
           onclick: e => { e.stopPropagation(); abrir(); } }, i.tipo === "dar ok" ? "Revisar" : "Responder") : null,
       h("button", { class: `mini${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
-        onclick: e => { e.stopPropagation(); levarParaAgenda(i, e.currentTarget); } }, levado ? "✓ agenda" : "+ agenda")];
+        onclick: e => { e.stopPropagation(); levarParaAgenda(i, e.currentTarget); } }, levado ? "✓ agenda" : "+ agenda"),
+      // apagar sem abrir: a tarefa sai descartada no vault; o rascunho e descartado pelo Copiloto no proximo ciclo
+      possiveis.includes("excluir") ? botaoExcluir(i.id, "mini", "Excluir")
+        : possiveis.includes("descartar") ? botaoComConfirmacao("mini", "Descartar", "Descarta o rascunho sem enviar; o Copiloto trata no próximo ciclo",
+          b => { delete b.dataset.confirmar; b.textContent = "Descartar"; responder(i, "descartar", "", b); }) : null];
     return h("article", { class: `linha${i.velho ? " cor-atencao" : ""}`, tabindex: "0", role: "button", title: i.texto || i.titulo,
       onclick: abrir, onkeydown: e => { if (e.key === "Enter" && e.target === e.currentTarget) abrir(); } },
       h("div", { class: "linha-1" }, h("span", { class: "tipo" }, NOME_TIPO[i.tipo] || i.tipo), h("b", {}, i.titulo),
@@ -618,7 +672,8 @@
       h("div", { class: "acoes" },
         naFila ? h("button", { class: "botao pequeno", type: "button", onclick: () => abrirGaveta("voce", naFila.id) }, naFila.tipo === "dar ok" ? "Revisar o rascunho" : "Responder na fila") : null,
         alvoMapa && alvoMapa.tipo === "tarefa" && alvoMapa.id === id ? null
-          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); abrirGrafo("tarefa", id); } }, "Ver o grafo da tarefa"))];
+          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); abrirGrafo("tarefa", id); } }, "Ver o grafo da tarefa"),
+        t.aberta && /^T-/.test(t.id) ? botaoExcluir(t.id, "botao pequeno", "Excluir tarefa") : null)];
   }
   // Sessao ou subsessao: o estado e a conversa, lida do fim para tras. A subsessao (subagente) so se le.
   function gavetaSessao(d, tipo, id, silencioso) {
@@ -874,6 +929,8 @@
   if ("speechSynthesis" in window) speechSynthesis.getVoices();  // o Chrome so carrega a lista de vozes depois da primeira chamada
   document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => { ui.aba = b.dataset.aba; salvarPreferencias(); renderizar(); }));
   document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
+  $("abrirRotinas").addEventListener("click", () => { ui.rotinas = "aberta"; salvarPreferencias(); renderizar(); });
+  $("recolherRotinas").addEventListener("click", () => { ui.rotinas = "fechada"; salvarPreferencias(); renderizar(); });
   $("busca").addEventListener("input", debounce(e => { ui.busca = e.target.value; renderizar(); }, 120));
   $("atualizar").addEventListener("click", () => carregar(true));
   $("rodarAgora").addEventListener("click", rodarAgora);

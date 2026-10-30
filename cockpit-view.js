@@ -113,11 +113,55 @@
   }
 
   // Botoes da gaveta de cada item da fila Voce. Rascunho: aprovar (sai em nome do Gabriel), pedir ajuste ou descartar;
-  // tarefa: responder com texto. O que ja foi respondido espera o ciclo do Copiloto: nenhum botao, so o aviso.
+  // tarefa: responder com texto ou excluir (fica descartada no vault). O que ja foi respondido espera o ciclo do
+  // Copiloto: nenhum botao, so o aviso.
   function acoesDoItem(item) {
     if (!item || item.resposta) return [];
     if (item.tipo === "dar ok") return ["aprovar", "ajuste", "descartar"];
-    return /^T-/.test(String(item.id || "")) ? ["responder"] : [];
+    return /^T-/.test(String(item.id || "")) ? ["responder", "excluir"] : [];
+  }
+  // A releitura do cockpit leva alguns segundos e pode trazer a leitura de antes: ate o Copiloto mostrar a tarefa
+  // fechada, ela sai da fila e fica fechada no Mapa (some, se nao tem sessao viva). `pendentes` e o que ainda falta
+  // o Copiloto confirmar. O rascunho ligado a tarefa fica: ele descarta a parte.
+  function semExcluidas(dados, ids) {
+    if (!dados || !ids || !ids.size) return { dados, pendentes: new Set() };
+    const pendentes = new Set();
+    const voce = dados.voce || { total: 0, itens: [] };
+    const itens = (voce.itens || []).filter(i => {
+      const sai = ids.has(i.id) && /^T-/.test(i.id);
+      if (sai) pendentes.add(i.id);
+      return !sai;
+    });
+    const t = dados.trabalho || { projetos: [], sessoes: {} };
+    const viva = sid => Boolean(((t.sessoes || {})[sid] || {}).viva);
+    const abertas = lista => lista.filter(x => x.aberta).length;
+    const projetos = (t.projetos || []).map(p => {
+      if (!p.tarefas.some(x => ids.has(x.id) && x.aberta)) return p;
+      const tarefas = p.tarefas.flatMap(x => {
+        if (!ids.has(x.id) || !x.aberta) return [x];
+        pendentes.add(x.id);
+        return (x.sessoes || []).some(viva) ? [{ ...x, aberta: false, status: "descartada" }] : [];
+      });
+      return { ...p, tarefas, abertas: Math.max(0, (p.abertas || 0) - (abertas(p.tarefas) - abertas(tarefas))) };
+    });
+    return { dados: { ...dados, voce: { ...voce, itens, total: Math.max(0, (voce.total || 0) - ((voce.itens || []).length - itens.length)) },
+      trabalho: { ...t, projetos } }, pendentes };
+  }
+  // Rotinas recolhida (30/10): o selo da faixa mostra a pior cor, para um erro nao passar despercebido.
+  function resumoRotinas(rotinas) {
+    const lista = Array.from(rotinas || []);
+    const n = cor => lista.filter(r => r.cor === cor).length;
+    if (n("problema")) return { cor: "problema", texto: `${n("problema")} erro` };
+    if (n("atencao")) return { cor: "atencao", texto: `${n("atencao")} atenção` };
+    return n("bem") ? { cor: "bem", texto: `${n("bem")} ok` } : { cor: "sem_sinal", texto: "nenhuma" };
+  }
+  // A sessao de uma tarefa excluida continua: o aviso diz qual, para ele parar pela gaveta dela se quiser.
+  function avisoDaExclusao(vivas) {
+    const nomes = Array.from(vivas || []);
+    const base = "Tarefa excluída: fica no vault como descartada.";
+    if (!nomes.length) return base;
+    if (nomes.length === 1) return `${base} A sessão ${nomes[0]} continua; o Parar está na gaveta dela.`;
+    return `${base} As sessões ${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]} continuam; o Parar está na gaveta de cada uma.`;
   }
   function rotuloDaResposta(item) {
     const r = item && item.resposta;
@@ -294,6 +338,6 @@
     return `O ditado parou (${codigo}).`;
   }
 
-  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian,
+  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
     layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });

@@ -47,7 +47,8 @@ function createCockpitSource({ run = () => runCopiloto(), ttlMs = 45000, now = (
   let cache = null;
   let erro = null;
   let emAndamento = null;
-  function refresh() {
+  let proxima = null;
+  function ler() {  // uma leitura do Copiloto; quem pede no meio dela recebe a mesma
     emAndamento ||= Promise.resolve()
       .then(run)
       .then(dados => { cache = { dados, em: now() }; erro = null; return cache; },
@@ -55,17 +56,23 @@ function createCockpitSource({ run = () => runCopiloto(), ttlMs = 45000, now = (
       .finally(() => { emAndamento = null; });
     return emAndamento;
   }
+  // Depois de uma mudanca (resposta, exclusao de tarefa): a leitura que ja rodava pode ser de antes dela, entao roda
+  // mais uma quando ela termina. Varias mudancas no meio da mesma leitura viram uma leitura so.
+  function refresh() {
+    if (!emAndamento) return ler();
+    return (proxima ||= emAndamento.catch(() => {}).then(() => { proxima = null; return ler(); }));
+  }
   function view() {
     return { dados: cache.dados, lidoEm: new Date(cache.em).toISOString(), idadeSegundos: Math.round((now() - cache.em) / 1000),
       atualizando: Boolean(emAndamento), erro };
   }
   async function get({ force = false } = {}) {
     if (!cache || force) {
-      try { await refresh(); }
+      try { await (proxima || ler()); }  // a tela pediu a leitura nova: se ha uma depois de mudanca, espera ela
       catch (error) { if (!cache) throw error; }
       return view();
     }
-    if (now() - cache.em > ttlMs) refresh().catch(() => {});
+    if (now() - cache.em > ttlMs) ler().catch(() => {});
     return view();
   }
   return { get, refresh };

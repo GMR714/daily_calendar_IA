@@ -100,11 +100,11 @@ test("o que mudou entre duas leituras", () => {
   assert.deepEqual(V.mudancas(null, depois).textos, []);
 });
 
-test("fila Voce: rascunho aprova, ajusta ou descarta; tarefa responde; o que ja foi respondido espera o ciclo", () => {
+test("fila Voce: rascunho aprova, ajusta ou descarta; tarefa responde ou e excluida; o que ja foi respondido espera o ciclo", () => {
   assert.deepEqual(V.acoesDoItem({ tipo: "dar ok", id: "R-07" }), ["aprovar", "ajuste", "descartar"]);
-  assert.deepEqual(V.acoesDoItem({ tipo: "decidir", id: "T-20261029-03" }), ["responder"]);
-  assert.deepEqual(V.acoesDoItem({ tipo: "travada", id: "T-20261027-01" }), ["responder"]);
-  assert.deepEqual(V.acoesDoItem({ tipo: "aguardando terceiros", id: "T-20261027-02" }), ["responder"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "decidir", id: "T-20261029-03" }), ["responder", "excluir"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "travada", id: "T-20261027-01" }), ["responder", "excluir"]);
+  assert.deepEqual(V.acoesDoItem({ tipo: "aguardando terceiros", id: "T-20261027-02" }), ["responder", "excluir"]);
   assert.deepEqual(V.acoesDoItem({ tipo: "dar ok", id: "R-07", resposta: { acao: "aprovar", origem: "tela" } }), []);
   assert.deepEqual(V.acoesDoItem(null), []);
 });
@@ -289,4 +289,44 @@ test("ditar: o erro do reconhecimento vira um aviso que ele entende", () => {
   assert.match(V.erroDoDitado("network"), /internet/);
   assert.equal(V.erroDoDitado("aborted"), "");
   assert.match(V.erroDoDitado("bad-grammar"), /bad-grammar/);
+});
+
+// ------------------------------------------------------------------ excluir tarefa (29/10)
+test("excluir: o aviso diz que a nota fica no vault e cita a sessao que continua viva", () => {
+  assert.equal(V.avisoDaExclusao([]), "Tarefa excluída: fica no vault como descartada.");
+  assert.equal(V.avisoDaExclusao(["Revisão do PR"]),
+    "Tarefa excluída: fica no vault como descartada. A sessão Revisão do PR continua; o Parar está na gaveta dela.");
+  assert.equal(V.avisoDaExclusao(["A", "B"]),
+    "Tarefa excluída: fica no vault como descartada. As sessões A e B continuam; o Parar está na gaveta de cada uma.");
+  assert.equal(V.avisoDaExclusao(undefined), "Tarefa excluída: fica no vault como descartada.");
+});
+
+test("excluir: a tarefa excluida sai da fila e do Mapa ate o Copiloto confirmar", () => {
+  const dados = {
+    voce: { total: 3, itens: [{ tipo: "decidir", id: "T-20261029-01" }, { tipo: "dar ok", id: "R-07", tarefa: "T-20261029-01" }, { tipo: "decidir", id: "T-20261029-02" }] },
+    trabalho: { projetos: [{ nome: "p", abertas: 2, tarefas: [
+      { id: "T-20261029-01", aberta: true, status: "aguardando-voce", sessoes: [] },
+      { id: "T-20261029-02", aberta: true, status: "aguardando-voce", sessoes: ["s1"] }] }],
+    sessoes: { s1: { nome: "Revisão", viva: true } } } };
+  const r = V.semExcluidas(dados, new Set(["T-20261029-01", "T-20261029-02"]));
+  assert.deepEqual(r.dados.voce.itens.map(i => i.id), ["R-07"]);  // o rascunho ligado a tarefa fica: ele descarta a parte
+  assert.equal(r.dados.voce.total, 1);
+  // com sessao viva a tarefa fica no Mapa, fechada, como o Copiloto mostra
+  assert.deepEqual(r.dados.trabalho.projetos[0].tarefas.map(t => [t.id, t.aberta, t.status]), [["T-20261029-02", false, "descartada"]]);
+  assert.equal(r.dados.trabalho.projetos[0].abertas, 0);
+  assert.deepEqual([...r.pendentes].sort(), ["T-20261029-01", "T-20261029-02"]);
+  assert.equal(dados.voce.itens.length, 3, "nao mexe nos dados recebidos");
+  const confirmada = { voce: { total: 1, itens: [{ tipo: "dar ok", id: "R-07" }] },
+    trabalho: { projetos: [{ nome: "p", abertas: 0, tarefas: [{ id: "T-20261029-02", aberta: false, status: "descartada", sessoes: ["s1"] }] }], sessoes: {} } };
+  assert.deepEqual([...V.semExcluidas(confirmada, new Set(["T-20261029-01", "T-20261029-02"])).pendentes], []);
+  assert.equal(V.semExcluidas(dados, new Set()).dados, dados);
+});
+
+// ------------------------------------------------------------------ Rotinas recolhivel (30/10)
+test("rotinas recolhidas: o selo mostra a pior cor, para um erro nao passar despercebido", () => {
+  const r = cor => ({ nome: cor, cor });
+  assert.deepEqual(V.resumoRotinas([r("bem"), r("bem"), r("problema"), r("atencao")]), { cor: "problema", texto: "1 erro" });
+  assert.deepEqual(V.resumoRotinas([r("bem"), r("atencao"), r("atencao")]), { cor: "atencao", texto: "2 atenção" });
+  assert.deepEqual(V.resumoRotinas([r("bem"), r("bem"), r("sem_sinal")]), { cor: "bem", texto: "2 ok" });
+  assert.deepEqual(V.resumoRotinas([]), { cor: "sem_sinal", texto: "nenhuma" });
 });

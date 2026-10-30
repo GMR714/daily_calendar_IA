@@ -1,7 +1,7 @@
-// Ordens da tela para o Copiloto. A tela nao manda mensagem nem mexe em tarefa: grava a resposta na
-// caixa de entrada do Copiloto (`cli.py entrada gravar`), que o ciclo le pelo mesmo caminho do
-// "ok R-NN" da DM. "Rodar agora" pede um ciclo (`cli.py ciclo agora`) sem derrubar o que estiver rodando.
-// O texto vai pela entrada padrao, nunca pela linha de comando.
+// Ordens da tela para o Copiloto. A tela nao manda mensagem: grava a resposta na caixa de entrada do Copiloto
+// (`cli.py entrada gravar`), que o ciclo le pelo mesmo caminho do "ok R-NN" da DM. "Rodar agora" pede um ciclo
+// (`cli.py ciclo agora`) sem derrubar o que estiver rodando. Na tarefa, a tela so exclui: status descartada, com
+// texto fixo no registro. O texto dele vai pela entrada padrao, nunca pela linha de comando.
 const { execFile } = require("node:child_process");
 const { commandFor, childEnv } = require("./cockpit-source");
 
@@ -17,6 +17,13 @@ function validarResposta(body = {}) {
   if (acao === "responder" && !texto) throw Object.assign(new Error("Escreva a resposta."), { status: 400 });
   if (texto.length > LIMITE_TEXTO) throw Object.assign(new Error("Resposta longa demais: ate 4 mil caracteres."), { status: 400 });
   return { acao, item, texto };
+}
+
+// Excluir tarefa (29/10): so o id no formato das notas do vault chega ao Copiloto.
+function validarExclusao({ tarefa } = {}) {
+  const id = String(tarefa || "");
+  if (!/^T-\d{8}-\d{1,3}$/.test(id)) throw Object.assign(new Error("Tarefa invalida."), { status: 400 });
+  return id;
 }
 
 // Conversa de uma sessao do Claude (Mapa de trabalho, 29/10): o id longo ou o curto, o subagente e a posicao no
@@ -85,7 +92,9 @@ function createCopilotoCommands({ run = runCli } = {}) {
     pararSessao: sessao => run(["sessao", "parar", sessao], { timeoutMs: 90000 }),
     // o resumo roda um claude -p (8 a 14 s em 29/10); guardado, volta em ~1 s
     resumirSessao: sessao => run(["sessao", "resumo", sessao], { timeoutMs: 90000 }),
+    // a nota fica no vault, fechada, com a linha no registro; mudar o status de volta desfaz
+    excluirTarefa: id => run(["tarefa", "registrar", id, "Descartada pela tela do cockpit.", "--status", "descartada"]),
   };
 }
 
-module.exports = { createCopilotoCommands, validarResposta, validarLeitura, validarRespostaSessao, erroDoComando, envDoCopiloto, runCli };
+module.exports = { createCopilotoCommands, validarResposta, validarExclusao, validarLeitura, validarRespostaSessao, erroDoComando, envDoCopiloto, runCli };
