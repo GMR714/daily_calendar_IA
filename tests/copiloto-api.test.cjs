@@ -128,7 +128,7 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   assert.match(html, /<button id="recolherRotinas"/);
   assert.match(html, /<div id="historia"/);  // o clique numa bola troca as bolas pela historia da tarefa
   assert.match(html, /cockpit\.js\?v=11/);
-  assert.match(html, /cockpit-view\.js\?v=11/);
+  assert.match(html, /cockpit-view\.js\?v=12/);
   assert.match(html, /cockpit\.css\?v=9/);
 });
 

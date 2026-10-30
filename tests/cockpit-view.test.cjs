@@ -270,6 +270,8 @@ test("historia: o agora diz se precisa dele, se travou ou quem cuida", () => {
   assert.deepEqual(V.agoraDaHistoria({ tipo: "trabalhando" }), { rotulo: "Trabalhando", cor: "bem" });
   assert.deepEqual(V.agoraDaHistoria({ tipo: "fila" }), { rotulo: "Na fila do Copiloto", cor: "sem_sinal" });
   assert.deepEqual(V.agoraDaHistoria({ tipo: "fechada" }), { rotulo: "Fechada", cor: "sem_sinal" });
+  // PR, rascunho ou terceiro que o Copiloto acompanha: não é com ele (ADR 020 do copiloto)
+  assert.deepEqual(V.agoraDaHistoria({ tipo: "aguardando" }), { rotulo: "Esperando resposta de fora", cor: "sem_sinal" });
   assert.deepEqual(V.agoraDaHistoria(undefined), { rotulo: "Agora", cor: "sem_sinal" });
 });
 

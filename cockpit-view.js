@@ -321,8 +321,10 @@
     }
     return { porPasso, noAgora };
   }
+  // aguardando (30/10, ADR 020 do copiloto): PR, rascunho ou terceiro que o Copiloto acompanha, fora da fila Voce
   const AGORA = { voce: { rotulo: "Precisa de você", cor: "atencao" }, travada: { rotulo: "Travada", cor: "problema" },
-    trabalhando: { rotulo: "Trabalhando", cor: "bem" }, fila: { rotulo: "Na fila do Copiloto", cor: "sem_sinal" }, fechada: { rotulo: "Fechada", cor: "sem_sinal" } };
+    trabalhando: { rotulo: "Trabalhando", cor: "bem" }, fila: { rotulo: "Na fila do Copiloto", cor: "sem_sinal" }, fechada: { rotulo: "Fechada", cor: "sem_sinal" },
+    aguardando: { rotulo: "Esperando resposta de fora", cor: "sem_sinal" } };
   function agoraDaHistoria(agora) {
     const tipo = agora && agora.tipo;
     return { ...(Object.prototype.hasOwnProperty.call(AGORA, tipo) ? AGORA[tipo] : { rotulo: "Agora", cor: "sem_sinal" }) };
