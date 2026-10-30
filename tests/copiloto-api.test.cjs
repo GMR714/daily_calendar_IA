@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { createApp } = require("../server-runtime");
-const { createCopilotoCommands, validarResposta, envDoCopiloto } = require("../copiloto-command");
+const { createCopilotoCommands, validarResposta, envDoCopiloto, erroDoComando } = require("../copiloto-command");
 const { commandFor, DEFAULT_CLI } = require("../cockpit-source");
 
 async function abrir(t, copiloto, extras = {}) {
@@ -17,9 +17,10 @@ async function abrir(t, copiloto, extras = {}) {
 const post = (base, caminho, body, headers = { "Content-Type": "application/json" }) =>
   fetch(base + caminho, { method: "POST", headers, body: JSON.stringify(body) }).then(async r => ({ status: r.status, body: await r.json() }));
 function copilotoFalso() {
-  const chamadas = { responder: [], rodar: 0 };
+  const chamadas = { responder: [], rodar: 0, mestra: 0 };
   return { chamadas, responder: async r => { chamadas.responder.push(r); return { id: "E-20261029-01", ...r }; },
-    rodar: async () => { chamadas.rodar += 1; return { estado: "iniciado" }; } };
+    rodar: async () => { chamadas.rodar += 1; return { estado: "iniciado" }; },
+    abrirMestra: async () => { chamadas.mestra += 1; return { ok: true, acao: "nova", curto: "7c0f5a9e", sessao: "7c0f5a9e-1111", janela: 777 }; } };
 }
 
 test("copiloto: aprovar um rascunho grava a resposta pelo Copiloto", async t => {
@@ -68,6 +69,28 @@ test("copiloto: rodar agora pede um ciclo e devolve o estado", async t => {
   assert.equal(resposta.status, 200);
   assert.deepEqual(resposta.body, { ok: true, estado: "iniciado" });
   assert.equal(copiloto.chamadas.rodar, 1);
+});
+
+test("copiloto: o botao Mestra abre a janela pelo Copiloto e devolve o que ele fez", async t => {
+  const copiloto = copilotoFalso();
+  const base = await abrir(t, copiloto);
+  assert.equal((await post(base, "/api/copiloto/mestra", {}, { "Content-Type": "text/plain" })).status, 415);
+  const resposta = await post(base, "/api/copiloto/mestra", {});
+  assert.equal(resposta.status, 200);
+  assert.deepEqual(resposta.body, { ok: true, acao: "nova", curto: "7c0f5a9e", sessao: "7c0f5a9e-1111", janela: 777 });
+  assert.equal(copiloto.chamadas.mestra, 1);
+});
+
+test("copiloto: a Mestra roda mestra --abrir no cli.py, com tempo para ela nascer", async () => {
+  const chamadas = [];
+  const comandos = createCopilotoCommands({ run: async (argumentos, opcoes = {}) => { chamadas.push({ argumentos, timeoutMs: opcoes.timeoutMs }); return {}; } });
+  await comandos.abrirMestra();
+  assert.deepEqual(chamadas[0].argumentos, ["mestra", "--abrir"]);
+  assert.ok(chamadas[0].timeoutMs >= 90000);  // criar a sessao espera o claude --bg e o claude agents
+});
+
+test("copiloto: Copiloto sem a Mestra explica o que falta", () => {
+  assert.match(erroDoComando({ stderr: "copiloto: error: argument grupo: invalid choice: 'mestra'" }), /Mestra/);
 });
 
 test("copiloto: falha do Copiloto vira 503 com a mensagem dele", async t => {
@@ -123,11 +146,12 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   const base = await abrir(t, copilotoFalso());
   const html = await (await fetch(base + "/cockpit")).text();
   assert.match(html, /<button id="rodarAgora"/);
+  assert.match(html, /<button id="abrirMestra"/);  // a janela do chat que manda nas outras sessoes (ADR 022 do copiloto)
   assert.match(html, /<button id="voltarMapa"/);  // o grafo de um projeto ou tarefa volta ao Mapa
   assert.match(html, /<button id="abrirRotinas"/);  // Rotinas recolhida vira uma faixa que abre a coluna
   assert.match(html, /<button id="recolherRotinas"/);
   assert.match(html, /<div id="historia"/);  // o clique numa bola troca as bolas pela historia da tarefa
-  assert.match(html, /cockpit\.js\?v=11/);
+  assert.match(html, /cockpit\.js\?v=12/);
   assert.match(html, /cockpit-view\.js\?v=12/);
   assert.match(html, /cockpit\.css\?v=9/);
 });

@@ -137,6 +137,11 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
         await readJson(req);
         return reply(res, 200, { ok: true, ...(await copiloto.rodar()) });
       }
+      // Mestra: a janela do chat que responde na hora e manda nas outras sessoes (ADR 022 do copiloto).
+      if (req.method === "POST" && url.pathname === "/api/copiloto/mestra") {
+        await readJson(req);
+        return reply(res, 200, { ok: true, ...(await copiloto.abrirMestra()) });
+      }
       // Mapa de trabalho: a conversa de uma sessao (ou de um subagente dela), do fim para tras.
       const conversa = /^\/api\/sessoes\/([^/]+)\/conversa$/.exec(url.pathname);
       if (req.method === "GET" && conversa) {
