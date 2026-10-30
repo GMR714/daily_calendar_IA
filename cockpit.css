@@ -291,3 +291,7 @@ p.sessao-resposta { color: var(--muted); font-size: 13px; }
 .botao.gravando::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--problema); animation: gravando 1s ease-in-out infinite; }
 @keyframes gravando { 50% { opacity: .25; } }
 .dica-ditado { align-self: center; color: var(--muted); font-size: 12px; }
+/* Excluir tarefa (29/10): no card da fila, o mesmo vermelho do Descartar; confirmado, fica cheio */
+.mini.perigo { color: var(--red); border-color: rgba(163, 63, 63, .35); }
+.mini.perigo:hover { border-color: var(--red); }
+.mini.perigo[data-confirmar] { background: var(--red); color: #fff; border-color: var(--red); }

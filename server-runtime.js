@@ -7,7 +7,7 @@ const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
 const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal } = require("./request-guard");
-const { createCopilotoCommands, validarResposta, validarLeitura, validarRespostaSessao } = require("./copiloto-command");
+const { createCopilotoCommands, validarResposta, validarExclusao, validarLeitura, validarRespostaSessao } = require("./copiloto-command");
 const { execFile } = require("node:child_process");
 
 // Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
@@ -110,6 +110,12 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
         const entrada = await copiloto.responder(resposta);
         if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // a fila passa a mostrar "espera o ciclo"
         return reply(res, 200, { ok: true, entrada });
+      }
+      if (req.method === "POST" && url.pathname === "/api/copiloto/excluir-tarefa") {
+        const id = validarExclusao(await readJson(req));
+        const r = await copiloto.excluirTarefa(id);
+        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // o card sai da fila e do Mapa
+        return reply(res, 200, { ok: true, id: r.id || id, status: r.status || "descartada" });
       }
       if (req.method === "POST" && url.pathname === "/api/copiloto/rodar") {
         await readJson(req);

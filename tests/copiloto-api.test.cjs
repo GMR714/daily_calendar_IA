@@ -124,7 +124,38 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   const html = await (await fetch(base + "/cockpit")).text();
   assert.match(html, /<button id="rodarAgora"/);
   assert.match(html, /<button id="voltarMapa"/);  // o grafo de um projeto ou tarefa volta ao Mapa
-  assert.match(html, /cockpit\.js\?v=8/);
-  assert.match(html, /cockpit-view\.js\?v=7/);
-  assert.match(html, /cockpit\.css\?v=6/);
+  assert.match(html, /cockpit\.js\?v=9/);
+  assert.match(html, /cockpit-view\.js\?v=8/);
+  assert.match(html, /cockpit\.css\?v=7/);
+});
+
+// ------------------------------------------------------------------ excluir tarefa (29/10)
+test("copiloto: excluir tarefa leva o id ao Copiloto e rele o cockpit, para o card sair na hora", async t => {
+  const excluidas = [];
+  let releituras = 0;
+  const cockpit = { get: async () => ({ dados: {}, lidoEm: "x", idadeSegundos: 0, atualizando: false, erro: null }), refresh: async () => { releituras += 1; } };
+  const base = await abrir(t, { excluirTarefa: async id => { excluidas.push(id); return { id, status: "descartada" }; } }, { cockpit });
+  const r = await post(base, "/api/copiloto/excluir-tarefa", { tarefa: "T-20261029-03" });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { ok: true, id: "T-20261029-03", status: "descartada" });
+  assert.deepEqual(excluidas, ["T-20261029-03"]);
+  assert.equal(releituras, 1);
+});
+
+test("copiloto: excluir com id fora do formato, sem JSON ou de outro site nao chega ao Copiloto", async t => {
+  const excluidas = [];
+  const base = await abrir(t, { excluirTarefa: async id => { excluidas.push(id); return { id, status: "descartada" }; } });
+  for (const body of [{ tarefa: "R-07" }, { tarefa: "T-2026" }, { tarefa: "../Tarefas/T-20261029-03" }, { tarefa: "T-20261029-03 x" }, {}]) {
+    assert.equal((await post(base, "/api/copiloto/excluir-tarefa", body)).status, 400, JSON.stringify(body));
+  }
+  assert.equal((await post(base, "/api/copiloto/excluir-tarefa", { tarefa: "T-20261029-03" }, { "Content-Type": "text/plain" })).status, 415);
+  assert.equal((await post(base, "/api/copiloto/excluir-tarefa", { tarefa: "T-20261029-03" }, { "Content-Type": "application/json", Origin: "http://site.example" })).status, 403);
+  assert.deepEqual(excluidas, []);
+});
+
+test("copiloto: o cli.py recebe tarefa registrar com o texto fixo e o status descartada", async () => {
+  const chamadas = [];
+  const comandos = createCopilotoCommands({ run: async (argumentos, opcoes = {}) => { chamadas.push({ argumentos, entrada: opcoes.entrada }); return {}; } });
+  await comandos.excluirTarefa("T-20261029-03");
+  assert.deepEqual(chamadas, [{ argumentos: ["tarefa", "registrar", "T-20261029-03", "Descartada pela tela do cockpit.", "--status", "descartada"], entrada: undefined }]);
 });

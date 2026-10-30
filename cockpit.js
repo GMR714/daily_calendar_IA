@@ -80,6 +80,9 @@
       if (!r.ok) throw new Error(corpo.error || `O servidor respondeu ${r.status}.`);
       const anterior = resposta && resposta.dados;
       corpo.dados = V.legivel(corpo.dados);
+      const filtrado = V.semExcluidas(corpo.dados, excluidas);  // a leitura pode ser de antes da exclusao
+      corpo.dados = filtrado.dados;
+      excluidas = filtrado.pendentes;
       resposta = corpo;
       recebidoEm = Date.now();
       const m = V.mudancas(anterior, corpo.dados);
@@ -152,6 +155,46 @@
       toast(erro.message);
     }
   }
+  // Excluir tarefa (29/10): a nota fica no vault com status descartada e o card sai da fila e do Mapa na hora.
+  // O primeiro clique so pede confirmacao, como no Descartar e no Parar.
+  let excluidas = new Set();  // tarefas excluidas que a leitura do Copiloto ainda nao mostra fechadas
+  function botaoExcluir(id, classe, rotulo) {
+    return h("button", { class: `${classe} perigo`, type: "button", "data-rotulo": rotulo,
+      title: "Fecha a tarefa como descartada. A nota fica no vault, com uma linha no registro.", onclick: ev => {
+        ev.stopPropagation();
+        const b = ev.currentTarget;
+        if (b.dataset.confirmar) return excluirTarefa(id, b);
+        b.dataset.confirmar = "1";
+        b.textContent = "Confirmar";
+        setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.confirmar; b.textContent = rotulo; } }, 4000);
+      } }, rotulo);
+  }
+  function sessoesVivasDaTarefa(id) {
+    const t = (resposta && resposta.dados && resposta.dados.trabalho) || {};
+    const tarefa = (t.projetos || []).flatMap(p => p.tarefas).find(x => x.id === id);
+    return ((tarefa && tarefa.sessoes) || []).map(sid => (t.sessoes || {})[sid]).filter(s => s && s.viva).map(s => s.nome);
+  }
+  async function excluirTarefa(id, botao) {
+    const vivas = sessoesVivasDaTarefa(id);
+    botao.disabled = true;
+    botao.textContent = "Excluindo…";
+    try {
+      const r = await fetch("/api/copiloto/excluir-tarefa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tarefa: id }) });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "Não consegui excluir a tarefa.");
+      excluidas.add(id);
+      resposta.dados = V.semExcluidas(resposta.dados, excluidas).dados;
+      if (gaveta && (gaveta.tipo === "voce" || gaveta.tipo === "tarefa") && gaveta.id === id) fecharGaveta();
+      toast(V.avisoDaExclusao(vivas));
+      renderizar();
+      carregar(true);
+    } catch (erro) {
+      botao.disabled = false;
+      delete botao.dataset.confirmar;
+      botao.textContent = botao.dataset.rotulo;
+      toast(erro.message);
+    }
+  }
   async function rodarAgora() {
     const botao = $("rodarAgora");
     botao.disabled = true;
@@ -202,7 +245,7 @@
       aprovar,
       acoes.includes("ajuste") ? h("button", { class: "botao pequeno secundario", type: "button", onclick: ev => comTexto("responder", ev) }, "Pedir ajuste") : null,
       acoes.includes("responder") ? h("button", { class: "botao pequeno", type: "button", onclick: ev => comTexto("responder", ev) }, "Responder") : null,
-      descartar));
+      descartar, acoes.includes("excluir") ? botaoExcluir(i.id, "botao pequeno", "Excluir tarefa") : null));
   }
 
   // ------------------------------------------------------------------ estado geral
@@ -331,7 +374,8 @@
           title: i.tipo === "dar ok" ? "Ler a mensagem inteira e aprovar, pedir ajuste ou descartar" : "Responder ao Copiloto",
           onclick: e => { e.stopPropagation(); abrir(); } }, i.tipo === "dar ok" ? "Revisar" : "Responder") : null,
       h("button", { class: `mini${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
-        onclick: e => { e.stopPropagation(); levarParaAgenda(i, e.currentTarget); } }, levado ? "✓ agenda" : "+ agenda")];
+        onclick: e => { e.stopPropagation(); levarParaAgenda(i, e.currentTarget); } }, levado ? "✓ agenda" : "+ agenda"),
+      V.acoesDoItem(i).includes("excluir") ? botaoExcluir(i.id, "mini", "Excluir") : null];
     return h("article", { class: `linha${i.velho ? " cor-atencao" : ""}`, tabindex: "0", role: "button", title: i.texto || i.titulo,
       onclick: abrir, onkeydown: e => { if (e.key === "Enter" && e.target === e.currentTarget) abrir(); } },
       h("div", { class: "linha-1" }, h("span", { class: "tipo" }, NOME_TIPO[i.tipo] || i.tipo), h("b", {}, i.titulo),
@@ -618,7 +662,8 @@
       h("div", { class: "acoes" },
         naFila ? h("button", { class: "botao pequeno", type: "button", onclick: () => abrirGaveta("voce", naFila.id) }, naFila.tipo === "dar ok" ? "Revisar o rascunho" : "Responder na fila") : null,
         alvoMapa && alvoMapa.tipo === "tarefa" && alvoMapa.id === id ? null
-          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); abrirGrafo("tarefa", id); } }, "Ver o grafo da tarefa"))];
+          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); abrirGrafo("tarefa", id); } }, "Ver o grafo da tarefa"),
+        t.aberta && /^T-/.test(t.id) ? botaoExcluir(t.id, "botao pequeno", "Excluir tarefa") : null)];
   }
   // Sessao ou subsessao: o estado e a conversa, lida do fim para tras. A subsessao (subagente) so se le.
   function gavetaSessao(d, tipo, id, silencioso) {

@@ -26,9 +26,27 @@ test("cockpit roda o copiloto uma vez, guarda e serve do cache", async () => {
   assert.equal(velho.dados.n, 1);
   assert.equal(velho.atualizando, true);
   assert.equal(velho.idadeSegundos, 2);
+  // refresh e pedido depois de uma mudanca: a leitura que ja rodava (2) pode ser de antes dela, entao le de novo (3)
   await source.refresh();
-  assert.equal((await source.get()).dados.n, 2);
-  assert.equal((await source.get({ force: true })).dados.n, 3);
+  assert.equal((await source.get()).dados.n, 3);
+  assert.equal((await source.get({ force: true })).dados.n, 4);
+});
+
+test("releitura pedida depois de uma mudanca, com outra leitura rodando, roda de novo quando ela termina", async () => {
+  let calls = 0;
+  let soltar;
+  const source = createCockpitSource({ run: () => { const n = ++calls; return n === 1 ? new Promise(r => { soltar = () => r({ n }); }) : Promise.resolve({ n }); } });
+  const primeira = source.get();  // leitura que comecou antes da mudanca (ex.: excluir uma tarefa)
+  const [a, b] = [source.refresh(), source.refresh()];  // duas mudancas no meio dela viram uma leitura so
+  const forcada = source.get({ force: true });  // a tela pede a leitura nova: espera a que vem depois da mudanca
+  await new Promise(r => setImmediate(r));  // o run da primeira leitura comeca no proximo ciclo
+  soltar();
+  assert.equal((await primeira).dados.n, 1);
+  await Promise.all([a, b]);
+  assert.equal((await forcada).dados.n, 2);
+  assert.equal(calls, 2);
+  await source.refresh();  // sem leitura rodando, le uma vez so
+  assert.equal(calls, 3);
 });
 
 test("cockpit sem copiloto vira 503 com mensagem clara; com cache, mostra o ultimo dado e o erro", async () => {
