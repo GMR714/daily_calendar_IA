@@ -146,8 +146,6 @@ body.cockpit { height: 100dvh; overflow: hidden; padding-left: var(--rail-w, 76p
 #aba-mapa { display: flex; flex-direction: column; gap: 8px; }
 .mapa-caixa { flex: 1; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--sombra); padding: 8px; }
 .mapa-caixa svg { width: 100%; height: 100%; display: block; }
-.mapa-grupo { fill: var(--surface-2); stroke: var(--line); }
-.mapa-grupo-titulo { fill: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
 .no { cursor: pointer; } .no text { fill: #3a4252; font-size: 11px; pointer-events: none; }
 .no circle.bola { stroke: #fff; stroke-width: 2; }
 .no circle.bola.problema { fill: var(--problema); } .no circle.bola.atencao { fill: var(--atencao); } .no circle.bola.bem { fill: var(--bem); }
@@ -156,9 +154,6 @@ body.cockpit { height: 100dvh; overflow: hidden; padding-left: var(--rail-w, 76p
 .no circle.aura.sem_sinal { fill: none; }
 .no:hover circle.aura { opacity: .35; }
 .aresta { stroke: var(--blue); stroke-opacity: .35; stroke-dasharray: 4 5; }
-.aresta.voce { stroke: #c9c1b1; stroke-dasharray: none; }
-.no text.voce-num { fill: #fff; font-weight: 800; font-size: 20px; }
-.no text.voce-rot { fill: #fff; font-weight: 700; font-size: 11px; letter-spacing: .08em; }
 .legenda { flex-shrink: 0; margin: 0; color: var(--muted); font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .legenda span { display: inline-flex; gap: 6px; align-items: center; }
 
@@ -238,18 +233,14 @@ code { font: 12px Consolas, monospace; background: #f0ebe1; padding: 2px 7px; bo
   .kpi.maquina { display: none; }
 }
 
-/* Mapa de trabalho (docs/specs/mapa-de-trabalho.md): projeto com as tarefas em volta; o clique abre o grafo de sessoes */
+/* Grafo de sessoes (docs/specs/mapa-de-trabalho.md): o nome do projeto ou a pasta sem tarefa abrem; a trilha volta */
 .mapa-topo { flex-shrink: 0; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .mapa-trilha { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .mapa-trilha b { color: var(--ink); }
 .mapa-trilha small { margin-left: 10px; font-size: 12px; }
 .trilha-link { border: 0; background: none; padding: 0; color: var(--blue); font-weight: 600; cursor: pointer; }
 .trilha-link:hover { text-decoration: underline; }
-.aresta.orbita { stroke: #ddd5c6; stroke-dasharray: none; }
 .aresta.grafo { fill: none; stroke: #c9c1b1; stroke-dasharray: none; stroke-width: 1.4; stroke-opacity: 1; }
-.projeto-rot { fill: var(--ink); font-size: 12px; font-weight: 700; }
-
-.mais-rot { fill: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
 .mapa-aviso { fill: var(--muted); font-size: 13px; }
 .no-grafo text { font-size: 12px; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .no-grafo.raiz text { font-size: 14px; font-weight: 700; fill: var(--ink); }
@@ -275,7 +266,6 @@ code { font: 12px Consolas, monospace; background: #f0ebe1; padding: 2px 7px; bo
 .sessao-pedido b { color: var(--muted); font-weight: 600; }
 .fala a { color: var(--blue); }
 .fala code { user-select: text; }
-.projeto-num { fill: var(--muted); font-size: 11px; font-weight: 600; }
 /* Resposta para a sessao (entrega 2): fica embaixo da conversa, como num chat */
 .sessao-resposta { flex-shrink: 0; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .sessao-resposta .acoes { margin-top: 8px; }
@@ -313,3 +303,65 @@ p.sessao-resposta { color: var(--muted); font-size: 13px; }
   body[data-rotinas="fechada"] .rotinas-alca { display: flex; }
 }
 @media (max-width: 900px) { #recolherRotinas { display: none; } }
+/* Mapa de bolas (docs/specs/mapa-historia.md): cada bola e uma tarefa, a cor e o estado e o titulo vai dentro */
+.bolha { cursor: pointer; outline: none; }
+.bolha .bolha-corpo { transform-box: fill-box; transform-origin: center; transition: transform .15s ease; }
+.bolha:hover .bolha-corpo, .bolha:focus-visible .bolha-corpo { transform: scale(1.05); }
+.bolha .bola { fill: #fff; stroke: var(--sem_sinal); stroke-width: 2.5; }
+.bolha.problema .bola { fill: #fbe9e6; stroke: var(--problema); }
+.bolha.atencao .bola { fill: #fcf1dc; stroke: var(--atencao); }
+.bolha.bem .bola { fill: #e3f3ec; stroke: var(--bem); }
+.bolha .aura { fill: none; opacity: .14; }
+.bolha.problema .aura { fill: var(--problema); } .bolha.atencao .aura { fill: var(--atencao); } .bolha.bem .aura { fill: var(--bem); }
+.bolha:hover .aura, .bolha:focus-visible .aura { opacity: .32; }
+.bolha.pasta .bola { stroke-dasharray: 5 4; }
+.bolha.fechada .bola { stroke-dasharray: 2 3; fill: var(--surface-2); }
+.bolha text { fill: var(--ink); font-size: 12px; font-weight: 600; pointer-events: none; }
+.bolha.pasta text { font-size: 10.5px; fill: var(--muted); }
+/* a bola que espera por ele pulsa, cada uma no seu tempo; ao abrir o Mapa, as bolas surgem */
+.bolha.precisa .aura { animation: pulsar 2.6s ease-in-out var(--atraso, 0ms) infinite; }
+.bolha.surgir .bolha-corpo { animation: surgir .5s cubic-bezier(.2, .9, .3, 1.15) var(--atraso, 0ms) backwards; }
+@keyframes pulsar { 50% { opacity: .34; } }
+@keyframes surgir { from { transform: scale(.2); opacity: 0; } }
+.cacho-rot { fill: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer;
+  paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; outline: none; }
+.cacho-rot:hover, .cacho-rot:focus-visible { fill: var(--blue); }
+@media (prefers-reduced-motion: reduce) {
+  .bolha .bolha-corpo, .bolha.precisa .aura { animation: none !important; transition: none; }
+}
+/* Historia da tarefa: pedido → passos → agora ⇢ meta, em cartoes de tamanho fixo (o cockpit.js conta quantos cabem) */
+#aba-mapa[data-vista="historia"] #mapa { display: none; }
+#aba-mapa:not([data-vista="historia"]) #historia { display: none; }
+.historia { height: 100%; overflow: hidden; padding: 12px; display: flex; flex-direction: column; justify-content: safe center; gap: 14px; }
+.historia-fileira { display: flex; align-items: stretch; }
+.historia .seta { flex: 0 0 28px; display: grid; place-items: center; color: var(--fraco); font-size: 18px; }
+.historia .seta.tracejada { color: #cfc8ba; }
+.cartao-h { flex: 0 0 196px; height: 160px; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--raio); box-shadow: var(--sombra); cursor: pointer; overflow: hidden; text-align: left; outline: none; }
+.cartao-h:hover, .cartao-h:focus-visible { border-color: var(--ink); }
+.cartao-h-topo { margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--fraco); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cartao-h-titulo { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.cartao-h-texto { margin: 0; font-size: 12.5px; line-height: 1.4; color: #3a4252; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
+.cartao-h.pedido { border-left: 4px solid var(--blue); }
+.cartao-h.com-pilulas .cartao-h-texto { -webkit-line-clamp: 5; }
+.cartao-h.pedido .cartao-h-texto, .cartao-h.agora .cartao-h-texto { -webkit-line-clamp: 4; }
+.cartao-h.agora.muitas-pilulas .cartao-h-texto { -webkit-line-clamp: 3; }
+.cartao-h-cabeca { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.cartao-h-cabeca .cartao-h-topo { flex: 1; min-width: 0; }
+.cartao-h.nav { flex-basis: 92px; align-items: center; justify-content: center; gap: 0; background: var(--surface-2); border-style: dashed; color: var(--muted); font-size: 12px; font-weight: 600; }
+.cartao-h.nav b { font-size: 20px; color: var(--ink); }
+.cartao-h.agora { flex-basis: 420px; border-width: 2px; }
+.cartao-h.agora.atencao { border-color: var(--atencao); background: #fffaf0; } .cartao-h.agora.atencao .cartao-h-topo { color: #9a6812; }
+.cartao-h.agora.problema { border-color: var(--problema); background: #fff6f4; } .cartao-h.agora.problema .cartao-h-topo { color: var(--problema); }
+.cartao-h.agora.bem { border-color: var(--bem); background: #f3faf6; } .cartao-h.agora.bem .cartao-h-topo { color: var(--green); }
+.cartao-h.agora .cartao-h-texto { font-size: 13px; color: var(--ink); }
+.cartao-h.meta { border-style: dashed; background: var(--surface-2); box-shadow: none; }
+.pilulas { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-height: 48px; overflow: hidden; }
+.pilula { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px;
+  padding: 1px 9px; font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pilula:hover { border-color: var(--ink); }
+.pilula:disabled { cursor: default; opacity: .6; }
+.pilula.rascunho { border-color: var(--atencao); color: #8a5f12; background: #fffaf0; }
+.texto-passo { margin: 12px 0 0; padding: 12px 14px; background: var(--surface-2); border-radius: 10px; font-size: 13.5px; line-height: 1.55;
+  white-space: pre-line; overflow-wrap: anywhere; max-height: calc(100dvh - 250px); overflow: auto; }
+.texto-passo a { color: var(--blue); }

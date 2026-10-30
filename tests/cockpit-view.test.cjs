@@ -149,30 +149,119 @@ const TRABALHO = {
   ],
   sessoes: { s1: sessaoFalsa("s1", "Desafio do Marios", subs(12)), s2: sessaoFalsa("s2", "transcricao"), s3: sessaoFalsa("s3", "tasks jornada", subs(2)) },
 };
-const dentro = (p, c) => p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-test("mapa de trabalho: cada projeto na sua celula, as tarefas em volta e tudo dentro da area", () => {
-  const caixa = { x: 30, y: 50, w: 700, h: 430 };
-  const { celulas } = V.layoutTrabalho(TRABALHO.projetos, caixa);
-  assert.deepEqual(celulas.map(c => c.nome), ["setup-com-prova", "copiloto", "Sem tarefa"]);
-  for (const c of celulas) {
-    assert.ok(dentro(c, caixa), c.nome);
-    assert.ok(c.rotuloY <= caixa.y + caixa.h, `rotulo de ${c.nome} fora da area`);
-    for (const t of c.tarefas) {
-      assert.ok(dentro({ x: t.x - t.r, y: t.y - t.r }, caixa) && dentro({ x: t.x + t.r, y: t.y + t.r }, caixa), t.id);
-      assert.ok(dist(c, t) >= c.r + t.r + 2, `${t.id} encosta no projeto`);
-      for (const outra of celulas) if (outra !== c) assert.ok(dist(c, t) < dist(outra, t), `${t.id} mais perto de ${outra.nome}`);
-    }
+// ------------------------------------------------------------------ Mapa de bolas e historia da tarefa (30/10)
+// 18 tarefas abertas em 5 projetos e 3 pastas com sessoes sem tarefa, como em 30/10
+function tarefasDoMapa() {
+  const lista = [];
+  let n = 0;
+  for (const [grupo, k] of [["setup-com-prova", 6], ["Homologação", 4], ["copiloto", 4], ["Jornada", 2], ["Hito", 2]]) {
+    for (let i = 0; i < k; i++, n++) lista.push({ id: `T-202610${10 + n}-01`, grupo, r: V.raioDaTarefa({ passos: (n * 7) % 55, cor: n % 3 ? "atencao" : "problema" }, n % 2) });
   }
+  for (const pasta of ["copiloto", "gabri", "e2e"]) lista.push({ id: `pasta:${pasta}`, grupo: "Sem tarefa", r: V.raioDaTarefa({ pasta: true, sessoes: ["a", "b"] }) });
+  return lista;
+}
+const MAPA = { x: 16, y: 12, w: 1618, h: 636 };  // o quadro do Mapa em 1536x730
+
+function conferirBolhas({ bolhas, grupos }, caixa) {
+  for (const b of bolhas) {
+    assert.ok(b.x - b.r >= caixa.x - 0.5 && b.x + b.r <= caixa.x + caixa.w + 0.5 && b.y - b.r >= caixa.y - 0.5 && b.y + b.r <= caixa.y + caixa.h + 0.5, `${b.id} fora da area`);
+    for (const o of bolhas) if (o !== b) assert.ok(dist(b, o) >= b.r + o.r - 0.5, `${b.id} encosta em ${o.id}`);
+    const g = grupos.find(x => x.nome === b.grupo);
+    assert.ok(dist(b, g) + b.r <= g.r + 0.5, `${b.id} fora do cacho de ${g.nome}`);
+  }
+  for (const g of grupos) {
+    assert.ok(g.rotuloY - 12 >= caixa.y - 0.5, `nome de ${g.nome} fora da area`);
+    for (const o of grupos) if (o !== g) assert.ok(dist(g, o) >= g.r + o.r - 0.5, `${g.nome} invade ${o.nome}`);
+  }
+}
+
+test("mapa de bolas: o raio cresce com os passos, com as sessoes vivas e quando precisa dele, ate um teto", () => {
+  const base = V.raioDaTarefa({ passos: 0, cor: "bem" }, 0);
+  assert.ok(V.raioDaTarefa({ passos: 9, cor: "bem" }, 0) > base);
+  assert.ok(V.raioDaTarefa({ passos: 0, cor: "bem" }, 2) > base);
+  assert.ok(V.raioDaTarefa({ passos: 0, cor: "atencao" }, 0) > base);
+  assert.ok(V.raioDaTarefa({ passos: 0, cor: "problema" }, 0) > base);
+  assert.equal(V.raioDaTarefa({ passos: 500, cor: "problema" }, 9), 84);
+  assert.equal(V.raioDaTarefa({ cor: "bem" }), base);  // Copiloto antigo, sem a contagem de passos
+  assert.ok(V.raioDaTarefa({ pasta: true, sessoes: ["a"] }) < base);
 });
 
-test("mapa de trabalho: mais de 10 tarefas mostra 9 e '+3'; sem projetos, sem celulas", () => {
-  const c = V.layoutTrabalho(TRABALHO.projetos, { x: 0, y: 0, w: 700, h: 430 }).celulas[0];
-  assert.equal(c.tarefas.length, 9);
-  assert.equal(c.mais.n, 3);
-  assert.equal(V.layoutTrabalho(TRABALHO.projetos, { x: 0, y: 0, w: 700, h: 430 }).celulas[1].mais, null);
-  assert.deepEqual(V.layoutTrabalho([], { x: 0, y: 0, w: 700, h: 430 }), { celulas: [] });
+test("mapa de bolas: cada projeto vira um cacho; nada se sobrepoe nem sai da area", () => {
+  const r = V.layoutBolhas(tarefasDoMapa(), MAPA);
+  assert.equal(r.bolhas.length, 21);
+  assert.deepEqual(r.grupos.map(g => g.nome), ["setup-com-prova", "Homologação", "copiloto", "Jornada", "Hito", "Sem tarefa"]);
+  conferirBolhas(r, MAPA);
+  const xs = r.bolhas.map(b => b.x);
+  assert.ok(Math.max(...xs) - Math.min(...xs) > 0.5 * MAPA.w, "os cachos se espalham na largura da tela");
+  for (const outra of [{ x: 10, y: 10, w: 1080, h: 640 }, { x: 0, y: 0, w: 600, h: 400 }]) conferirBolhas(V.layoutBolhas(tarefasDoMapa(), outra), outra);
+});
+
+test("mapa de bolas: muitas tarefas encolhem para caber; poucas nao viram bolas gigantes", () => {
+  conferirBolhas(V.layoutBolhas(Array.from({ length: 60 }, (_, i) => ({ id: `T-${i}`, grupo: `p${i % 7}`, r: 60 })), MAPA), MAPA);
+  const uma = V.layoutBolhas([{ id: "T-1", grupo: "copiloto", r: 40 }], MAPA);
+  conferirBolhas(uma, MAPA);
+  assert.ok(uma.bolhas[0].r <= 60, String(uma.bolhas[0].r));
+});
+
+test("mapa de bolas: os mesmos dados dao o mesmo desenho, para a releitura de 30 s nao mexer nas bolas", () => {
+  assert.deepEqual(V.layoutBolhas(tarefasDoMapa(), MAPA), V.layoutBolhas(tarefasDoMapa(), MAPA));
+  assert.deepEqual(V.layoutBolhas([], MAPA), { bolhas: [], grupos: [] });
+});
+
+test("mapa de bolas: o titulo cabe dentro da bola, e o que sobra vira '…'", () => {
+  assert.deepEqual(V.textoNaBola("Pôr o apelido", 60), ["Pôr o apelido"]);
+  const linhas = V.textoNaBola("Responder o formulário de baseline do recrutamento com os dados da planilha que o Xande mandou ontem", 44);
+  assert.ok(linhas.length >= 2 && linhas.length <= Math.floor((1.4 * 44) / 14), JSON.stringify(linhas));
+  assert.ok(linhas.every(l => l.length <= Math.floor((1.55 * 44) / 6.4)), JSON.stringify(linhas));
+  assert.ok(linhas[linhas.length - 1].endsWith("…"));
+  assert.ok(V.textoNaBola("Supercalifragilisticexpialidocious", 30)[0].endsWith("…"));
+  assert.deepEqual(V.textoNaBola("", 40), []);
+  // uma linha so fica no meio da bola, onde ela e mais larga: o nome curto da pasta cabe inteiro
+  assert.deepEqual(V.textoNaBola("copiloto", 26, { letra: 5.6, altura: 12 }), ["copiloto"]);
+});
+
+test("historia: o cartao do passo mostra as frases inteiras que cabem, sem marcacao nem link", () => {
+  assert.equal(V.resumoDoPasso("Rascunho **R-69** na thread. O resto fica na gaveta.", 30), "Rascunho R-69 na thread.");
+  assert.equal(V.resumoDoPasso("Rascunho **R-69** na thread. O resto fica na gaveta."), "Rascunho R-69 na thread. O resto fica na gaveta.");
+  assert.equal(V.resumoDoPasso("Veja https://x.example/a e o `cli.py`"), "Veja e o cli.py");
+  assert.equal(V.resumoDoPasso("3.000 caracteres e nada mais. Fim.", 30), "3.000 caracteres e nada mais.");
+  const longo = V.resumoDoPasso("palavra ".repeat(60), 50);
+  assert.ok(longo.length <= 50 && longo.endsWith("…"), longo);
+  // a hora que o texto repete no comeco ja esta no topo do cartao; o ":" que sobrou do link sai
+  assert.equal(V.resumoDoPasso("29/10 19h01: o Xande respondeu ao R-81."), "O Xande respondeu ao R-81.");
+  assert.equal(V.resumoDoPasso("29/10 16:3x · Você mandou ao Samuel."), "Você mandou ao Samuel.");
+  assert.equal(V.resumoDoPasso("29/10 ~16h40, com o 'sim' do Gabriel."), "Com o 'sim' do Gabriel.");
+  assert.equal(V.resumoDoPasso("recebido enviado ao Mario na thread: https://x.example/p1"), "recebido enviado ao Mario na thread");
+  assert.equal(V.resumoDoPasso("30/10 é o prazo."), "30/10 é o prazo.");
+});
+
+test("historia: mostra os ultimos passos que cabem e navega para tras e para frente", () => {
+  assert.deepEqual(V.fatiaDaHistoria(54, null, 5), { de: 49, ate: 54, antes: 49, depois: 0 });
+  assert.deepEqual(V.fatiaDaHistoria(54, 0, 5), { de: 0, ate: 5, antes: 0, depois: 49 });
+  assert.deepEqual(V.fatiaDaHistoria(54, 52, 5), { de: 49, ate: 54, antes: 49, depois: 0 });
+  assert.deepEqual(V.fatiaDaHistoria(3, null, 5), { de: 0, ate: 3, antes: 0, depois: 0 });
+  assert.deepEqual(V.fatiaDaHistoria(54, null, 0), { de: 53, ate: 54, antes: 53, depois: 0 });  // sempre ao menos um passo
+  assert.deepEqual(V.fatiaDaHistoria(0, null, 5), { de: 0, ate: 0, antes: 0, depois: 0 });
+});
+
+test("historia: a sessao fica no primeiro passo que cita o id dela; sem citacao, fica no agora", () => {
+  const passos = [{ texto: "criada" }, { texto: "despachada para a sessão 6422da15" }, { texto: "a sessão 6422da15 terminou" }];
+  const r = V.sessoesNosPassos(passos, [{ id: "6422da15", sessao: "6422da15-aaaa", nome: "Pendências" }, { id: "b5ee32c9", sessao: "b5ee32c9-bbbb", nome: "Revisão" }]);
+  assert.deepEqual(Object.keys(r.porPasso), ["1"]);
+  assert.equal(r.porPasso[1][0].nome, "Pendências");
+  assert.deepEqual(r.noAgora.map(s => s.nome), ["Revisão"]);
+  assert.deepEqual(V.sessoesNosPassos([], []), { porPasso: {}, noAgora: [] });
+});
+
+test("historia: o agora diz se precisa dele, se travou ou quem cuida", () => {
+  assert.deepEqual(V.agoraDaHistoria({ tipo: "voce" }), { rotulo: "Precisa de você", cor: "atencao" });
+  assert.deepEqual(V.agoraDaHistoria({ tipo: "travada" }), { rotulo: "Travada", cor: "problema" });
+  assert.deepEqual(V.agoraDaHistoria({ tipo: "trabalhando" }), { rotulo: "Trabalhando", cor: "bem" });
+  assert.deepEqual(V.agoraDaHistoria({ tipo: "fila" }), { rotulo: "Na fila do Copiloto", cor: "sem_sinal" });
+  assert.deepEqual(V.agoraDaHistoria({ tipo: "fechada" }), { rotulo: "Fechada", cor: "sem_sinal" });
+  assert.deepEqual(V.agoraDaHistoria(undefined), { rotulo: "Agora", cor: "sem_sinal" });
 });
 
 function conferirGrafo(g, caixa) {

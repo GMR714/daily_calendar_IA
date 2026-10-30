@@ -127,6 +127,9 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
         const pedido = validarLeitura({ sessao: conversa[1], sub: url.searchParams.get("sub"), antes: url.searchParams.get("antes") });
         return reply(res, 200, await copiloto.lerSessao(pedido));
       }
+      // Mapa: a historia de uma tarefa (pedido → passos do Registro → agora → meta), lida da nota no clique da bola.
+      const historia = /^\/api\/tarefas\/([^/]+)\/historia$/.exec(url.pathname);
+      if (req.method === "GET" && historia) return reply(res, 200, await copiloto.historiaDaTarefa(validarExclusao({ tarefa: historia[1] })));
       // Ouvir: resumo curto da sessao, sem codigo, que a tela le em voz alta.
       const resumo = /^\/api\/sessoes\/([^/]+)\/resumo$/.exec(url.pathname);
       if (req.method === "GET" && resumo) return reply(res, 200, await copiloto.resumirSessao(validarLeitura({ sessao: resumo[1] }).sessao));

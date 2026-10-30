@@ -8,7 +8,6 @@
   const ZONA = { bem: "tranquilo", atencao: "grande; vale um /compact quando fechar a etapa", problema: "acima de ~500 mil, onde o Claude começa a errar mais", sem_sinal: "sem dado" };
   const TIPOS = ["dar ok", "decidir", "aguardando terceiros", "travada"];
   const NOME_TIPO = { "dar ok": "Dar ok", decidir: "Decidir", "aguardando terceiros": "Terceiros", travada: "Travadas" };
-  const PREFIXOS = ["Copiloto - ", "Seazone Uso IA ", "claude-switcher-"];
 
   const ui = lerPreferencias();
   let resposta = null;
@@ -19,7 +18,7 @@
   let toastTimer = null;
   let carregandoAgora = false;
   let gaveta = null;
-  let alvoMapa = null;  // grafo aberto no Mapa: { tipo: "projeto" | "tarefa", id }
+  let alvoMapa = null;  // o que o Mapa mostra no lugar das bolas: { tipo: "historia" | "projeto" | "tarefa", id }
   const conversas = new Map();  // "sessao|subagente" → { falas, antes, carregando, erro }
   const sessoesVistas = new Map();  // ultima leitura de cada sessao aberta na gaveta
   const digitadoSessao = new Map();  // resposta que ele esta escrevendo, por sessao
@@ -66,7 +65,6 @@
   const agoraLocal = () => { const d = new Date(); return `${hojeChave()}T${doisDigitos(d.getHours())}:${doisDigitos(d.getMinutes())}:00`; };
   const horaDe = iso => (iso ? String(iso).replace("T", " ").slice(0, 16) : "");
   const linha = (rotulo, valor) => (valor ? h("div", {}, h("dt", {}, rotulo), h("dd", {}, valor)) : null);
-  const rotuloCurto = nome => { const p = PREFIXOS.find(x => nome.startsWith(x)); return p ? nome.slice(p.length) : nome; };
   function debounce(fn, ms) { let t = null; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
 
   // ------------------------------------------------------------------ dados
@@ -184,6 +182,7 @@
       const corpo = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(corpo.error || "Não consegui excluir a tarefa.");
       excluidas.add(id);
+      historias.delete(id);  // a historia aberta passa a mostrar a tarefa fechada
       resposta.dados = V.semExcluidas(resposta.dados, excluidas).dados;
       if (gaveta && (gaveta.tipo === "voce" || gaveta.tipo === "tarefa") && gaveta.id === id) fecharGaveta();
       toast(V.avisoDaExclusao(vivas));
@@ -304,7 +303,7 @@
       renderAgentes(f.agentes);
       renderFila(f.voce, d);
       renderRotinas(V.filtrar(d, { busca: ui.busca, cor: ui.cor, segmento: ui.segmento }).rotinas, f.rotinas);
-    } else if (ui.aba === "mapa") renderMapa(d, f);
+    } else if (ui.aba === "mapa") renderMapa(d);
     else renderHoje(d);
     marcarRodar();
     // redesenhar a gaveta no meio de uma resposta apagaria o que ele esta digitando
@@ -420,34 +419,34 @@
         pAgora !== null ? h("i", { class: "agora", style: `left:${pAgora}%` }) : null));
   }
 
-  function grupoMapa(svg, x, y, w, hh, titulo) {
-    svg.append(s("rect", { x, y, width: w, height: hh, rx: 18, class: "mapa-grupo" }), s("text", { x: x + 18, y: y + 24, class: "mapa-grupo-titulo" }, titulo));
-  }
-  function noMapa(svg, [x, y], cor, rotulo, onclick, { r = 10, apagado = false, acima = false, max = 28, semRotulo = false, dica = "" } = {}) {
-    const g = s("g", { class: "no", transform: `translate(${x},${y})`, opacity: apagado ? 0.22 : 1, tabindex: "0", role: "button" },
-      s("title", {}, dica || rotulo), s("circle", { r: r + 7, class: `aura ${cor}` }), s("circle", { r, class: `bola ${cor}` }),
-      semRotulo ? null : s("text", { y: acima ? -(r + 11) : r + 18, "text-anchor": "middle" }, curto(rotulo, max)));
-    g.addEventListener("click", onclick);
-    g.addEventListener("keydown", e => { if (e.key === "Enter") onclick(); });
-    svg.append(g);
-  }
-  function irParaFila(tipo) {
-    ui.aba = "painel"; ui.tipoFila = tipo; ui.coluna = "voce"; salvarPreferencias(); renderizar();
-  }
-  // Mapa de trabalho (docs/specs/mapa-de-trabalho.md): cada bola grande e um projeto, as bolinhas em volta sao as
-  // tarefas dele. O clique abre o grafo do projeto ou da tarefa no mesmo quadro; "← Mapa" (ou Esc) volta.
-  // A largura do desenho acompanha a da tela (altura fixa de 660): em 1536×730 sobra largura, e e ela que da espaco
-  // aos projetos. O SVG continua com 100% do quadro, entao trocar o viewBox nao muda o tamanho dele.
+  // Mapa de bolas (docs/specs/mapa-historia.md): cada bola e uma tarefa, com o titulo dentro, e as do mesmo projeto ficam
+  // juntas, com o nome dele em cima. A bola cresce com os passos e quando precisa dele; a que espera por ele pulsa.
+  // O clique na bola abre a historia da tarefa (na pasta de sessoes sem tarefa, o grafo delas); no nome do projeto, o
+  // grafo de sessoes dele. "← Mapa" (ou Esc) volta. A largura do desenho acompanha a da tela (altura fixa de 660): em
+  // 1536×730 sobra largura. O SVG continua com 100% do quadro, entao trocar o viewBox nao muda o tamanho dele.
+  let animarBolhas = true;  // as bolas surgem ao abrir o Mapa; a releitura de 30 s redesenha sem animar
+  let tamanhoDoMapa = "";  // o ResizeObserver so redesenha quando o quadro muda de tamanho (senao corta a animacao)
+  const clicavel = (el, acao) => {
+    el.addEventListener("click", acao);
+    el.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === e.currentTarget) acao(); });
+    return el;
+  };
+  const dataCurta = iso => (/^\d{4}-\d{2}-\d{2}/.test(String(iso || "")) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : String(iso || ""));
   function larguraDoMapa(svg) {
     const r = svg.getBoundingClientRect();
     const W = r.width > 0 && r.height > 0 ? Math.round(Math.min(1800, Math.max(1100, (660 * r.width) / r.height))) : 1100;
     svg.setAttribute("viewBox", `0 0 ${W} 660`);
     return W;
   }
-  function renderMapa(d, f) {
+  function renderMapa(d) {
     const svg = $("mapa");
     svg.replaceChildren();
+    const naHistoria = Boolean(alvoMapa && alvoMapa.tipo === "historia");
+    $("aba-mapa").dataset.vista = naHistoria ? "historia" : "mapa";
     $("mapaTopo").hidden = !alvoMapa;
+    const quadro = svg.parentElement;
+    tamanhoDoMapa = `${quadro.clientWidth}x${quadro.clientHeight}`;
+    if (naHistoria) return renderHistoria(d);
     const W = larguraDoMapa(svg);
     if (alvoMapa && d.trabalho) {
       const g = V.grafoDoItem(d.trabalho, alvoMapa, { w: W, h: 660 });
@@ -455,89 +454,81 @@
       alvoMapa = null;  // o item saiu do mapa (tarefa fechada, sessão encerrada): volta ao Mapa
       $("mapaTopo").hidden = true;
     }
-    renderTrabalho(svg, d.trabalho, W - 380);
-    const nuvem = d.rotinas.filter(r => String(r.onde).startsWith("nuvem"));
-    const locais = d.rotinas.filter(r => !String(r.onde).startsWith("nuvem"));
-    const xd = W - 340;  // coluna da direita: nuvem e voce
-    grupoMapa(svg, xd, 20, 320, 130, `NUVEM · ${nuvem.length} ${nuvem.length === 1 ? "ROTINA" : "ROTINAS"}`);
-    const naNuvem = nuvem.slice(0, 3);
-    naNuvem.forEach((r, i) => noMapa(svg, [xd + (i + 0.5) * (320 / naNuvem.length), 84], r.cor, r.nome, () => abrirGaveta("rotina", r.nome), { max: 22 }));
-    if (nuvem.length > 3) svg.append(s("text", { x: W - 34, y: 140, "text-anchor": "end", class: "mais-rot" }, `+${nuvem.length - 3}`));
-
-    const v = d.voce || {};
-    grupoMapa(svg, xd, 165, 320, 325, `VOCÊ · ${v.total || 0} ${v.total === 1 ? "ITEM" : "ITENS"}`);
-    const cx = xd + 160, cy = 335;
-    const tipos = Object.entries(v.por_tipo || {});
-    tipos.forEach(([t, n], i) => {
-      const ang = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(tipos.length, 1);
-      const x = cx + 105 * Math.cos(ang), y = cy + 100 * Math.sin(ang);
-      const velho = (v.itens || []).some(it => it.tipo === t && it.velho);
-      svg.append(s("line", { x1: cx, y1: cy, x2: x, y2: y, class: "aresta voce" }));
-      noMapa(svg, [x, y], velho ? "atencao" : "bem", `${NOME_TIPO[t] || t} · ${n}`, () => irParaFila(t), { r: 9, acima: y < cy - 1, max: 20 });
-    });
-    const corVoce = v.total ? (v.mais_antigo_dias >= 3 ? "atencao" : "bem") : "bem";
-    const g = s("g", { class: "no", transform: `translate(${cx},${cy})`, tabindex: "0", role: "button" },
-      s("title", {}, "O que espera a sua decisão"), s("circle", { r: 50, class: `aura ${corVoce}` }), s("circle", { r: 40, class: `bola ${corVoce}` }),
-      s("text", { y: 2, "text-anchor": "middle", class: "voce-num" }, String(v.total || 0)), s("text", { y: 18, "text-anchor": "middle", class: "voce-rot" }, "VOCÊ"));
-    g.addEventListener("click", () => irParaFila(null));
-    svg.append(g);
-
-    grupoMapa(svg, 20, 505, W - 40, 140, `ROTINAS NO NOTEBOOK · ${locais.length}`);
-    const grupos = {};
-    for (const r of locais) (grupos[r.segmento] = grupos[r.segmento] || []).push(r);
-    const nomes = Object.keys(grupos).sort((a, b) => a.localeCompare(b));
-    const util = W - 80;
-    let larguras = nomes.map(k => Math.max(160, (util * grupos[k].length) / Math.max(locais.length, 1)));
-    const soma = larguras.reduce((a, b) => a + b, 0);
-    larguras = larguras.map(w => (w * util) / soma);
-    let x0 = 40;
-    nomes.forEach((k, gi) => {
-      const lista = grupos[k].sort((a, b) => a.nome.localeCompare(b.nome));
-      const w = larguras[gi];
-      const colunas = lista.length > 2 ? Math.ceil(lista.length / 2) : lista.length;
-      if (gi > 0) svg.append(s("line", { x1: x0, y1: 540, x2: x0, y2: 632, class: "aresta voce" }));
-      svg.append(s("text", { x: x0 + 10, y: 552, class: "mapa-grupo-titulo" }, `${k.toUpperCase()} · ${lista.length}`));
-      lista.forEach((r, i) => noMapa(svg, [x0 + ((i % colunas) + 0.5) * (w / colunas), 578 + Math.floor(i / colunas) * 44], r.cor, rotuloCurto(r.nome),
-        () => abrirGaveta("rotina", r.nome), { r: 8, apagado: ui.segmento && r.segmento !== ui.segmento, max: Math.max(10, Math.floor(w / colunas / 6.6)) }));
-      x0 += w;
-    });
-    $("legenda").replaceChildren(...CORES.map(c => h("span", {}, bolinha(c), ROTULO[c])),
-      h("span", {}, "bola grande: projeto; bolinhas em volta: as tarefas dele"), h("span", {}, "clique para abrir o grafo de sessões"));
+    renderBolhas(svg, d.trabalho, W);
   }
 
-  function renderTrabalho(svg, t, largura) {
+  function renderBolhas(svg, t, W) {
+    $("legenda").replaceChildren(...CORES.map(c => h("span", {}, bolinha(c), ROTULO[c])),
+      h("span", {}, "cada bola é uma tarefa: cresce com os passos e quando precisa de você"),
+      h("span", {}, "clique na bola para a história; no nome do projeto, para o grafo de sessões"));
     if (!t) {
-      grupoMapa(svg, 20, 20, largura, 470, "TRABALHO");
-      svg.append(s("text", { x: 40, y: 84, class: "mapa-aviso" }, "O Copiloto instalado ainda não manda o mapa de trabalho."),
-        s("text", { x: 40, y: 104, class: "mapa-aviso" }, "Mescle o PR dele e rode git pull em C:\\Dev\\Dev Seazone\\copiloto."));
+      svg.append(s("text", { x: 40, y: 60, class: "mapa-aviso" }, "O Copiloto instalado ainda não manda o mapa de trabalho."),
+        s("text", { x: 40, y: 80, class: "mapa-aviso" }, "Mescle o PR dele e rode git pull em C:\\Dev\\Dev Seazone\\copiloto."));
       return;
     }
-    const sessoes = Object.values(t.sessoes || {});
-    const abertas = t.projetos.reduce((n, p) => n + p.abertas, 0);
-    grupoMapa(svg, 20, 20, largura, 470, `TRABALHO · ${t.projetos.length} PROJETOS · ${abertas} TAREFAS ABERTAS · ${sessoes.length} SESSÕES (${sessoes.filter(x => x.viva).length} NA MEMÓRIA)`);
+    const sessoes = t.sessoes || {};
+    const tarefas = t.projetos.flatMap(p => p.tarefas.map(x => ({ ...x, projeto: p.nome })));
+    if (!tarefas.length) {
+      svg.append(s("text", { x: W / 2, y: 330, "text-anchor": "middle", class: "mapa-aviso" }, "Nenhuma tarefa aberta nem sessão ativa."));
+      return;
+    }
+    const vivas = x => x.sessoes.filter(sid => (sessoes[sid] || {}).viva).length;
+    const { bolhas, grupos } = V.layoutBolhas(tarefas.map(x => ({ id: x.id, grupo: x.projeto, r: V.raioDaTarefa(x, vivas(x)) })), { x: 16, y: 12, w: W - 32, h: 636 });
     const termo = V.semAcento(ui.busca).trim();
-    const casa = (...campos) => !termo || campos.some(c => V.semAcento(c).includes(termo));
-    for (const c of V.layoutTrabalho(t.projetos, { x: 30, y: 44, w: largura - 20, h: 440 }).celulas) {
-      const p = t.projetos.find(x => x.nome === c.nome);
-      const tarefaApagada = x => Boolean((ui.cor && x.cor !== ui.cor) || !casa(p.nome, x.id, x.titulo));
-      const apagado = p.tarefas.every(tarefaApagada);
-      for (const x of c.tarefas) svg.append(s("line", { x1: c.x, y1: c.y, x2: x.x, y2: x.y, class: "aresta orbita", opacity: apagado ? 0.25 : 1 }));
-      const conta = p.nome === "Sem tarefa" ? `${p.sessoes} ${p.sessoes === 1 ? "sessão" : "sessões"}` : `${p.abertas} ${p.abertas === 1 ? "tarefa" : "tarefas"}`;
-      noMapa(svg, [c.x, c.y], c.cor, p.nome, () => abrirGrafo("projeto", p.nome),
-        { r: c.r, apagado, semRotulo: true, dica: `${p.nome}: ${conta}, ${p.sessoes} ${p.sessoes === 1 ? "sessão" : "sessões"} (${p.vivas} na memória). Clique para o grafo.` });
-      svg.append(s("text", { x: c.x, y: c.rotuloY, "text-anchor": "middle", class: "projeto-rot", opacity: apagado ? 0.35 : 1 }, curto(p.nome, Math.max(10, Math.floor(c.largura / 7.4)))),
-        s("text", { x: c.x, y: c.rotuloY + 13, "text-anchor": "middle", class: "projeto-num", opacity: apagado ? 0.35 : 1 }, conta));
-      for (const x of c.tarefas) noMapa(svg, [x.x, x.y], x.cor, x.titulo, () => abrirGrafo("tarefa", x.id),
-        { r: x.r, apagado: apagado || tarefaApagada(x), semRotulo: true, dica: x.pasta ? `Sem tarefa · ${x.titulo}` : `${x.id} · ${x.titulo} (${x.status})` });
-      if (c.mais) {
-        const mais = s("text", { x: c.mais.x, y: c.mais.y + 4, "text-anchor": "middle", class: "mais-rot", tabindex: "0", role: "button" }, `+${c.mais.n}`);
-        mais.addEventListener("click", () => abrirGrafo("projeto", p.nome));
-        svg.append(mais);
-      }
+    const apagada = x => Boolean((ui.cor && x.cor !== ui.cor) || (termo && ![x.projeto, x.id, x.titulo].some(c => V.semAcento(c).includes(termo))));
+    const porId = new Map(tarefas.map(x => [x.id, x]));
+    const animar = animarBolhas;
+    animarBolhas = false;
+    bolhas.forEach((b, i) => {
+      const x = porId.get(b.id);
+      // a pasta e uma bola menor, com o nome numa fonte menor
+      const linhas = x.pasta ? V.textoNaBola(x.titulo, b.r, { letra: 5.6, altura: 12 }) : V.textoNaBola(x.titulo, b.r - 3);
+      const entre = x.pasta ? 12 : 14;
+      const topo = 4 - ((linhas.length - 1) * entre) / 2;
+      const n = vivas(x);
+      const dica = x.pasta ? `Sem tarefa · ${x.titulo}: ${x.sessoes.length} ${x.sessoes.length === 1 ? "sessão" : "sessões"}. Clique para o grafo delas.`
+        : `${x.id} · ${x.titulo}\n${x.status || "sem status"}${x.passos ? ` · ${x.passos} ${x.passos === 1 ? "passo" : "passos"}` : ""}${n ? ` · ${n} na memória` : ""}. Clique para a história.`;
+      const precisa = x.aberta && (x.cor === "atencao" || x.cor === "problema");
+      const bolha = s("g", { class: `bolha ${x.cor}${x.pasta ? " pasta" : ""}${x.aberta ? "" : " fechada"}${precisa ? " precisa" : ""}${animar ? " surgir" : ""}`,
+        transform: `translate(${b.x},${b.y})`, tabindex: "0", role: "button", "aria-label": dica, opacity: apagada(x) ? 0.22 : null },
+        s("title", {}, dica),
+        s("g", { class: "bolha-corpo", style: `--atraso:${(i * 53) % 1300}ms` },
+          s("circle", { r: b.r + 6, class: "aura" }), s("circle", { r: b.r, class: "bola" }),
+          s("text", { "text-anchor": "middle" }, linhas.map((l, k) => s("tspan", { x: 0, y: topo + k * entre }, l)))));
+      svg.append(clicavel(bolha, x.pasta ? () => abrirGrafo("tarefa", x.id) : () => abrirHistoria(x.id)));
+    });
+    // o nome de cada projeto em cima do cacho, medido depois de desenhado: fica dentro do desenho e, se encosta no nome
+    // de um projeto mais urgente (que veio antes), encurta; se nem curto cabe, vai para baixo do cacho
+    const postos = [];
+    for (const g of grupos) {
+      const p = t.projetos.find(x => x.nome === g.nome);
+      const conta = p.nome === "Sem tarefa" ? `${p.sessoes} ${p.sessoes === 1 ? "sessão" : "sessões"}` : `${p.abertas} ${p.abertas === 1 ? "aberta" : "abertas"}`;
+      const nome = document.createTextNode("");
+      const rotulo = s("text", { x: g.x, y: g.rotuloY, "text-anchor": "middle", class: "cacho-rot", tabindex: "0", role: "button",
+        opacity: tarefas.filter(x => x.projeto === p.nome).every(apagada) ? 0.35 : null },
+        s("title", {}, `${p.nome}: ${conta}, ${p.sessoes} ${p.sessoes === 1 ? "sessão" : "sessões"} (${p.vivas} na memória). Clique para o grafo de sessões.`), nome);
+      svg.append(clicavel(rotulo, () => abrirGrafo("projeto", p.nome)));
+      const colocar = (n, y) => {
+        nome.data = `${curto(p.nome, n)} · ${conta}`;
+        const w = rotulo.getComputedTextLength(), x = Math.min(Math.max(g.x, w / 2 + 6), W - w / 2 - 6);
+        rotulo.setAttribute("x", x);
+        rotulo.setAttribute("y", y);
+        return { x0: x - w / 2, x1: x + w / 2, y0: y - 12, y1: y + 3 };
+      };
+      const encosta = c => postos.some(o => c.x0 < o.x1 + 8 && o.x0 < c.x1 + 8 && c.y0 < o.y1 && o.y0 < c.y1);
+      const tentar = y => {
+        let n = Math.max(24, Math.floor((2 * g.r) / 7)), caixa = colocar(n, y);
+        while (n > 8 && encosta(caixa)) caixa = colocar(n -= 2, y);
+        return caixa;
+      };
+      let caixa = tentar(g.rotuloY);
+      if (encosta(caixa) && g.y + g.r + 16 <= 654) caixa = tentar(g.y + g.r + 16);
+      postos.push(caixa);
     }
   }
 
-  // Grafo do projeto ou da tarefa: camadas da esquerda para a direita, arestas curvas, rotulo a direita de cada no.
+  // Grafo do projeto ou da pasta de sessoes sem tarefa: camadas da esquerda para a direita, arestas curvas, rotulo a
+  // direita de cada no.
   function renderGrafo(svg, g, t, W) {
     const sessoes = g.nos.filter(n => n.tipo === "sessao").length;
     const projeto = g.tipo === "tarefa" ? (t.projetos.find(p => p.tarefas.some(x => x.id === alvoMapa.id)) || {}).nome : null;
@@ -557,19 +548,16 @@
       const no = s("g", { class: `no no-grafo${n.nivel === 0 ? " raiz" : ""}${acao ? "" : " parado"}`, transform: `translate(${n.x},${n.y})`, tabindex: acao ? "0" : null, role: acao ? "button" : null },
         s("title", {}, [n.rotulo, n.dica].filter(Boolean).join(" · ")), s("circle", { r: n.r + 5, class: `aura ${n.cor}` }), s("circle", { r: n.r, class: `bola ${n.cor}` }),
         s("text", { x: n.r + 8, y: 4 }, curto(n.rotulo, Math.max(6, Math.floor(espaco / (n.nivel === 0 ? 8 : 6.6))))));
-      if (acao) {
-        no.addEventListener("click", acao);
-        no.addEventListener("keydown", e => { if (e.key === "Enter") acao(); });
-      }
+      if (acao) clicavel(no, acao);
       svg.append(no);
     }
     $("legenda").replaceChildren(...CORES.map(c => h("span", {}, bolinha(c), ROTULO[c])),
-      h("span", {}, "clique numa sessão para ler a conversa; numa tarefa, para o grafo dela"));
+      h("span", {}, "clique numa sessão para ler a conversa; numa tarefa, para a história dela"));
   }
-  // O que o clique em cada no do grafo faz: tarefa abre o grafo dela (ou o detalhe, se ja e o grafo dela); sessao e
-  // subsessao abrem a conversa; "+N subsessoes" abre a sessao.
+  // O que o clique em cada no do grafo faz: tarefa abre a historia dela; sessao e subsessao abrem a conversa;
+  // "+N subsessoes" abre a sessao.
   function acaoDoNo(n) {
-    if (n.tipo === "tarefa") return n.nivel === 0 ? () => abrirGaveta("tarefa", n.id) : () => abrirGrafo("tarefa", n.id);
+    if (n.tipo === "tarefa") return () => abrirHistoria(n.id);
     if (n.tipo === "pasta") return n.nivel === 0 ? null : () => abrirGrafo("tarefa", n.id);
     if (n.tipo === "sessao") return () => abrirGaveta("sessao", n.id);
     if (n.tipo === "sub") return () => abrirGaveta("sub", `${n.sessao}:${n.id}`);
@@ -582,7 +570,154 @@
   }
   function voltarAoMapa() {
     alvoMapa = null;
+    animarBolhas = true;
     renderizar();
+  }
+
+  // Historia da tarefa (docs/specs/mapa-historia.md): pedido → passos do Registro → agora ⇢ meta, em cartoes ligados
+  // por setas, em quantas fileiras couberem no quadro. Cabem os ultimos passos (onde a tarefa esta); "+N anteriores"
+  // volta. A nota e lida no clique (cli.py tarefa historia) e de novo a cada 30 s enquanto a historia esta aberta.
+  const historias = new Map();  // tarefa → { dados, carregando, erro, em }
+  let inicioHistoria = null;  // primeiro passo mostrado; null = os ultimos que cabem
+  const LARGURA = { cartao: 196, agora: 420, nav: 92, seta: 28 }, ALTURA_CARTAO = 160, VAO_FILEIRA = 14;
+  function verHistoria(id) {
+    if (ui.aba !== "mapa") { ui.aba = "mapa"; salvarPreferencias(); }
+    abrirHistoria(id);
+  }
+  function abrirHistoria(id) {
+    alvoMapa = { tipo: "historia", id };
+    inicioHistoria = null;
+    carregarHistoria(id);
+    renderizar();
+  }
+  async function carregarHistoria(id) {
+    const atual = historias.get(id) || {};
+    if (atual.carregando) return;
+    historias.set(id, { ...atual, carregando: true, erro: "" });
+    try {
+      const r = await fetch(`/api/tarefas/${encodeURIComponent(id)}/historia`, { cache: "no-store" });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || `O servidor respondeu ${r.status}.`);
+      historias.set(id, { dados: corpo, carregando: false, erro: "", em: Date.now() });
+    } catch (erro) {
+      historias.set(id, { ...(historias.get(id) || {}), carregando: false, erro: V.mensagemDeFalha(erro), em: Date.now() });
+    }
+    if (resposta && ui.aba === "mapa" && alvoMapa && alvoMapa.tipo === "historia" && alvoMapa.id === id) renderMapa(resposta.dados);
+    if (gaveta && gaveta.tipo === "historia" && gaveta.id.startsWith(`${id}|`)) abrirGaveta("historia", gaveta.id, true);
+  }
+  function renderHistoria(d) {
+    const id = alvoMapa.id;
+    const estado = historias.get(id);
+    if (!estado || (!estado.carregando && Date.now() - (estado.em || 0) > 30000)) carregarHistoria(id);
+    const H = estado && estado.dados;
+    const projeto = ((d.trabalho && d.trabalho.projetos) || []).find(p => p.tarefas.some(x => x.id === id));
+    const t = projeto ? projeto.tarefas.find(x => x.id === id) : null;
+    const status = (H && H.status) || (t && t.status) || "";
+    $("mapaTrilha").replaceChildren(...[
+      projeto ? h("button", { class: "trilha-link", type: "button", title: "Grafo de sessões do projeto", onclick: () => abrirGrafo("projeto", projeto.nome) }, projeto.nome) : null,
+      projeto ? " › " : null, h("b", {}, `${id} · ${(H && H.titulo) || (t && t.titulo) || ""}`),
+      h("small", {}, [status, H ? `${H.passos.length} ${H.passos.length === 1 ? "passo" : "passos"}` : "", H && H.prazo ? `prazo ${dataCurta(H.prazo)}` : ""].filter(Boolean).join(" · "))].filter(Boolean));
+    $("legenda").replaceChildren(h("span", {}, "pedido → o que foi feito → agora ⇢ meta"), h("span", {}, "clique num cartão para ler inteiro"),
+      h("span", {}, "no Agora: responder, revisar o rascunho ou excluir"), h("span", {}, "← Mapa ou Esc volta"));
+    const caixa = $("historia");
+    if (!H) {
+      caixa.replaceChildren(estado && estado.erro && !estado.carregando
+        ? h("div", { class: "falha" }, h("h2", {}, "Não consegui ler a história da tarefa"), h("p", {}, estado.erro),
+          h("button", { class: "botao pequeno", type: "button", onclick: () => carregarHistoria(id) }, "Tentar de novo"))
+        : h("p", { class: "vazio" }, "Lendo a nota da tarefa…"));
+      return;
+    }
+    const largura = caixa.clientWidth - 24, altura = caixa.clientHeight - 24;
+    const cabemFileiras = Math.max(1, Math.floor((altura + VAO_FILEIRA) / (ALTURA_CARTAO + VAO_FILEIRA)));
+    const total = H.passos.length;
+    // a sequencia com `cabem` passos, quebrada em fileiras; a seta que liga uma fileira a outra abre a de baixo
+    const arranjar = cabem => {
+      const f = V.fatiaDaHistoria(total, inicioHistoria, cabem);
+      const itens = [{ tipo: "pedido" }];
+      if (f.antes) itens.push({ tipo: "antes", n: f.antes });
+      for (let i = f.de; i < f.ate; i++) itens.push({ tipo: "passo", i });
+      if (f.depois) itens.push({ tipo: "depois", n: f.depois });
+      itens.push({ tipo: "agora" }, { tipo: "meta" });
+      const fileiras = [[]];
+      let usado = 0;
+      for (const it of itens) {
+        const w = LARGURA[it.tipo === "agora" ? "agora" : it.tipo === "antes" || it.tipo === "depois" ? "nav" : "cartao"];
+        const custo = (fileiras.length > 1 || fileiras[0].length ? LARGURA.seta : 0) + w;
+        if (fileiras[fileiras.length - 1].length && usado + custo > largura) { fileiras.push([]); usado = 0; }
+        usado += custo;
+        fileiras[fileiras.length - 1].push(it);
+      }
+      return { f, fileiras, cabem };
+    };
+    let arranjo = arranjar(Math.max(1, total));
+    while (arranjo.cabem > 1 && arranjo.fileiras.length > cabemFileiras) arranjo = arranjar(arranjo.cabem - 1);
+    const { f, fileiras, cabem } = arranjo;
+    const sessoesDaTarefa = ((t && t.sessoes) || []).map(sid => ((d.trabalho && d.trabalho.sessoes) || {})[sid]).filter(Boolean);
+    const { porPasso, noAgora } = V.sessoesNosPassos(H.passos, sessoesDaTarefa);
+    const naFila = ((d.voce && d.voce.itens) || []).find(i => i.id === id);
+    const pendentes = new Set(((d.voce && d.voce.itens) || []).map(i => i.id));
+    const agora = V.agoraDaHistoria(H.agora);
+    const pilulaSessao = ses => h("button", { class: "pilula", type: "button", title: `${ses.nome}: ${ses.estado}. Clique para a conversa.`,
+      onclick: e => { e.stopPropagation(); abrirGaveta("sessao", ses.sessao); } }, bolinha(ses.cor), curto(ses.nome, 24));
+    const abrirParte = parte => () => abrirGaveta("historia", `${id}|${parte}`);
+    const navegar = inicio => { inicioHistoria = inicio; renderHistoria(resposta.dados); };
+    const cartao = (classe, acao, ...filhos) => clicavel(h("article", { class: `cartao-h ${classe}`, tabindex: "0", role: "button" }, ...filhos), acao);
+    const topo = texto => h("p", { class: "cartao-h-topo" }, texto);
+    const texto = (valor, limite, vazio) => h("p", { class: "cartao-h-texto" }, V.resumoDoPasso(valor, limite) || vazio);
+    const montar = it => {
+      if (it.tipo === "pedido") {
+        const p = H.pedido || {};
+        return cartao("pedido", abrirParte("pedido"), topo(`Pedido${p.criada ? ` · ${dataCurta(p.criada)}` : ""}`),
+          h("b", { class: "cartao-h-titulo" }, [p.por, p.origem].filter(Boolean).join(" · ") || "Quem pediu não está na nota"),
+          texto(p.por_que, 150, "A nota não diz por quê."));
+      }
+      if (it.tipo === "antes") return h("button", { class: "cartao-h nav", type: "button", title: "Mostrar os passos anteriores", onclick: () => navegar(Math.max(0, f.de - cabem)) }, h("b", {}, `+${it.n}`), "anteriores");
+      if (it.tipo === "depois") return h("button", { class: "cartao-h nav", type: "button", title: "Mostrar os passos seguintes", onclick: () => navegar(f.ate + cabem >= total ? null : f.ate) }, h("b", {}, `+${it.n}`), "seguintes");
+      if (it.tipo === "passo") {
+        const p = H.passos[it.i];
+        const delas = porPasso[it.i] || [];
+        return cartao(`passo${delas.length ? " com-pilulas" : ""}`, abrirParte(`passo:${it.i}`), topo(`Passo ${it.i + 1} · ${p.quando}`),
+          texto(p.texto, delas.length ? 150 : 200, "(vazio)"), delas.length ? h("div", { class: "pilulas" }, delas.map(pilulaSessao)) : null);
+      }
+      if (it.tipo === "agora") {
+        // os botoes ficam no topo, sempre a vista; embaixo, os rascunhos para revisar e as sessoes que cuidam dela agora
+        const pilulas = [...(H.rascunhos || []).map(r => h("button", { class: "pilula rascunho", type: "button", disabled: !pendentes.has(r.id), title: r.texto,
+          onclick: e => { e.stopPropagation(); abrirGaveta("voce", r.id); } }, `${r.id} · revisar`)), ...noAgora.map(pilulaSessao)];
+        return cartao(`agora ${agora.cor}${pilulas.length > 4 ? " muitas-pilulas" : ""}`, () => abrirGaveta("tarefa", id),
+          h("div", { class: "cartao-h-cabeca" }, topo(`Agora · ${agora.rotulo}`),
+            naFila ? h("button", { class: "mini principal", type: "button", onclick: e => { e.stopPropagation(); abrirGaveta("voce", id); } }, "Responder") : null,
+            t && t.aberta ? botaoExcluir(id, "mini", "Excluir") : null),
+          texto(H.agora && H.agora.texto, 330, "Nada registrado ainda."),
+          pilulas.length ? h("div", { class: "pilulas" }, pilulas) : null);
+      }
+      return cartao("meta", abrirParte("meta"), topo("Meta · pronto quando"), texto(H.meta, 200, "A nota não diz quando fica pronta."));
+    };
+    caixa.replaceChildren(...fileiras.map((fileira, fi) => h("div", { class: "historia-fileira" },
+      fileira.flatMap((it, k) => [fi || k ? h("span", { class: `seta${it.tipo === "meta" ? " tracejada" : ""}`, "aria-hidden": "true" }, it.tipo === "meta" ? "⇢" : "→") : null, montar(it)]))));
+  }
+  // Uma parte da historia na gaveta: o pedido com o porque inteiro, a meta ou um passo, com o texto inteiro e os
+  // botoes para o passo anterior e o seguinte.
+  function gavetaHistoria(chave) {
+    const [id, parte = ""] = String(chave).split("|");
+    const H = (historias.get(id) || {}).dados;
+    if (!H) return null;
+    const inteiro = valor => h("div", { class: "texto-passo", tabindex: "0" }, trechos(valor));
+    if (parte === "pedido") {
+      const p = H.pedido || {};
+      const link = /^https?:\/\//.test(p.link || "") ? h("a", { href: p.link, target: "_blank", rel: "noopener noreferrer" }, p.origem || "abrir a origem") : p.origem;
+      return [h("p", { class: "eyebrow" }, `pedido · ${id}`), h("h3", {}, H.titulo),
+        h("dl", { class: "detalhes" }, linha("Quem pediu", p.por), linha("Onde", link), linha("Criada", dataCurta(p.criada)), linha("Prazo", dataCurta(H.prazo))),
+        p.por_que ? inteiro(p.por_que) : h("p", { class: "vazio" }, "A nota não diz por quê.")];
+    }
+    if (parte === "meta") return [h("p", { class: "eyebrow" }, `meta · ${id}`), h("h3", {}, "Pronto quando"), H.meta ? inteiro(H.meta) : h("p", { class: "vazio" }, "A nota não diz quando fica pronta.")];
+    const i = Number((/^passo:(\d+)$/.exec(parte) || [])[1]);
+    const p = Number.isInteger(i) ? H.passos[i] : null;
+    if (!p) return null;
+    const ir = j => () => abrirGaveta("historia", `${id}|passo:${j}`);
+    return [h("p", { class: "eyebrow" }, `passo ${i + 1} de ${H.passos.length} · ${p.quando}`), h("h3", {}, H.titulo), inteiro(p.texto),
+      h("div", { class: "acoes" },
+        h("button", { class: "botao pequeno secundario", type: "button", disabled: i === 0, onclick: ir(i - 1) }, "← Passo anterior"),
+        h("button", { class: "botao pequeno secundario", type: "button", disabled: i >= H.passos.length - 1, onclick: ir(i + 1) }, "Passo seguinte →"))];
   }
 
   function renderHoje(d) {
@@ -632,6 +767,8 @@
       const levado = naAgenda.has(i.id);
       const acoes = V.acoesDoItem(i);
       const espera = V.rotuloDaResposta(i);
+      // a tarefa do item (ele mesmo ou a do rascunho), para ver a historia dela no Mapa
+      const daTarefa = [i.id, i.tarefa].find(x => /^T-/.test(String(x || "")));
       corpo = [h("p", { class: "eyebrow" }, `${NOME_TIPO[i.tipo] || i.tipo} · ${i.id}`), h("h3", {}, i.titulo),
         espera ? h("p", { class: "estado estado-atencao" }, espera) : null,
         i.mensagem ? h("div", { class: "mensagem-completa", tabindex: "0", "aria-label": "Mensagem que vai sair em seu nome" }, i.mensagem) : null,
@@ -641,9 +778,12 @@
         acoes.length ? painelResposta(i, acoes) : null,
         h("div", { class: "acoes" },
           h("button", { class: `botao pequeno secundario${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
-            onclick: ev => levarParaAgenda(i, ev.currentTarget) }, levado ? "✓ Na agenda" : "Levar para a agenda"))];
+            onclick: ev => levarParaAgenda(i, ev.currentTarget) }, levado ? "✓ Na agenda" : "Levar para a agenda"),
+          daTarefa ? h("button", { class: "botao pequeno secundario", type: "button", title: "Pedido, o que foi feito e onde a tarefa está, no Mapa",
+            onclick: () => { fecharGaveta(); verHistoria(daTarefa); } }, "Ver a história da tarefa") : null)];
     }
     else if (tipo === "tarefa") corpo = gavetaTarefa(d, id);
+    else if (tipo === "historia") corpo = gavetaHistoria(id);
     else if (tipo === "sessao" || tipo === "sub") corpo = gavetaSessao(d, tipo, id, silencioso);
     if (!corpo) return fecharGaveta();
     // a releitura de 30 s redesenha a gaveta: a conversa volta para onde ele estava lendo
@@ -671,8 +811,8 @@
         linha("Nota", V.linkObsidian(t) ? h("a", { href: V.linkObsidian(t) }, "Abrir a nota no Obsidian") : "")),
       h("div", { class: "acoes" },
         naFila ? h("button", { class: "botao pequeno", type: "button", onclick: () => abrirGaveta("voce", naFila.id) }, naFila.tipo === "dar ok" ? "Revisar o rascunho" : "Responder na fila") : null,
-        alvoMapa && alvoMapa.tipo === "tarefa" && alvoMapa.id === id ? null
-          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); abrirGrafo("tarefa", id); } }, "Ver o grafo da tarefa"),
+        !/^T-/.test(t.id) || (ui.aba === "mapa" && alvoMapa && alvoMapa.tipo === "historia" && alvoMapa.id === id) ? null
+          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); verHistoria(id); } }, "Ver a história da tarefa"),
         t.aberta && /^T-/.test(t.id) ? botaoExcluir(t.id, "botao pequeno", "Excluir tarefa") : null)];
   }
   // Sessao ou subsessao: o estado e a conversa, lida do fim para tras. A subsessao (subagente) so se le.
@@ -927,7 +1067,10 @@
   // ------------------------------------------------------------------ eventos
   NavRail.montar($("rail"), { ativo: "cockpit" });
   if ("speechSynthesis" in window) speechSynthesis.getVoices();  // o Chrome so carrega a lista de vozes depois da primeira chamada
-  document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => { ui.aba = b.dataset.aba; salvarPreferencias(); renderizar(); }));
+  document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.aba === "mapa" && ui.aba !== "mapa") animarBolhas = true;
+    ui.aba = b.dataset.aba; salvarPreferencias(); renderizar();
+  }));
   document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
   $("abrirRotinas").addEventListener("click", () => { ui.rotinas = "aberta"; salvarPreferencias(); renderizar(); });
   $("recolherRotinas").addEventListener("click", () => { ui.rotinas = "fechada"; salvarPreferencias(); renderizar(); });
@@ -937,8 +1080,11 @@
   $("fecharGaveta").addEventListener("click", fecharGaveta);
   $("veu").addEventListener("click", fecharGaveta);
   $("voltarMapa").addEventListener("click", voltarAoMapa);
-  // a largura do desenho segue a do quadro: redesenha quando a janela muda ou quando a aba Mapa aparece (escondida, mede 0)
-  new ResizeObserver(() => { if (resposta && ui.aba === "mapa") renderMapa(resposta.dados); }).observe($("mapa"));
+  // o desenho segue o tamanho do quadro: redesenha quando a janela muda ou quando a aba Mapa aparece (escondida, mede 0)
+  new ResizeObserver(() => {
+    const quadro = $("mapa").parentElement;
+    if (resposta && ui.aba === "mapa" && `${quadro.clientWidth}x${quadro.clientHeight}` !== tamanhoDoMapa) renderMapa(resposta.dados);
+  }).observe($("mapa").parentElement);
   document.addEventListener("keydown", e => {
     const digitando = /^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || "");
     if (e.key === "/" && !digitando) { e.preventDefault(); $("busca").focus(); }
