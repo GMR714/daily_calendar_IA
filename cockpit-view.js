@@ -257,6 +257,34 @@
     return { pode: true, motivo: "", enviar: s.estado === "trabalhando" ? "Mandar quando parar" : "Enviar", parar: Boolean(s.viva), fila: s.na_fila || 0 };
   }
 
+  // Ouvir (entrega 3): a voz pt-BR do navegador. A natural do Edge soa melhor; depois a do Google; depois qualquer pt.
+  function escolherVoz(vozes) {
+    const lista = Array.from(vozes || []);
+    const lingua = v => String(v.lang || "").replace("_", "-").toLowerCase();
+    const br = lista.filter(v => lingua(v) === "pt-br");
+    return br.find(v => /natural/i.test(v.name)) || br.find(v => /google/i.test(v.name)) || br[0]
+      || lista.find(v => lingua(v).startsWith("pt")) || null;
+  }
+  // Uma fala por frase: a voz do Google no Chrome para no meio de falas longas (~15 s).
+  function frasesParaFalar(texto) {
+    return String(texto || "").split(/(?<=[.!?…])\s+/).map(f => f.trim()).filter(Boolean);
+  }
+
+  // Ditar: o texto ditado (final e provisorio) entra depois do que ja estava na caixa. Nada e enviado sozinho.
+  function juntarDitado(base, partes) {
+    return [String(base || "").trim(), ...Array.from(partes || [], p => String(p || "").trim())].filter(Boolean).join(" ");
+  }
+  function suporteDitado(janela) {
+    return (janela && (janela.SpeechRecognition || janela.webkitSpeechRecognition)) || null;
+  }
+  function erroDoDitado(codigo) {
+    if (codigo === "aborted") return "";
+    if (["not-allowed", "service-not-allowed", "audio-capture"].includes(codigo)) return "O ditado não conseguiu usar o microfone. Libere o microfone para esta página no cadeado da barra de endereço.";
+    if (codigo === "no-speech") return "Não ouvi nada. Clique em Ditar e fale de novo.";
+    if (codigo === "network") return "O ditado precisa de internet: o navegador manda o áudio para o serviço de voz dele.";
+    return `O ditado parou (${codigo}).`;
+  }
+
   return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian,
-    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, ORDEM_COR };
+    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });

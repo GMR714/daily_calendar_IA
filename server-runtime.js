@@ -121,6 +121,9 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
         const pedido = validarLeitura({ sessao: conversa[1], sub: url.searchParams.get("sub"), antes: url.searchParams.get("antes") });
         return reply(res, 200, await copiloto.lerSessao(pedido));
       }
+      // Ouvir: resumo curto da sessao, sem codigo, que a tela le em voz alta.
+      const resumo = /^\/api\/sessoes\/([^/]+)\/resumo$/.exec(url.pathname);
+      if (req.method === "GET" && resumo) return reply(res, 200, await copiloto.resumirSessao(validarLeitura({ sessao: resumo[1] }).sessao));
       // Responder e parar retomam ou param uma sessao do Claude: so JSON, que de outro site exige pre-checagem.
       const acao = /^\/api\/sessoes\/([^/]+)\/(responder|parar)$/.exec(url.pathname);
       if (req.method === "POST" && acao) {

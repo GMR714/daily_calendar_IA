@@ -237,3 +237,47 @@ test("sessao: terminal nao responde pela tela; trabalhando manda quando parar; v
     { pode: true, motivo: "", enviar: "Enviar", parar: false, fila: 0 });
   assert.equal(V.acoesDaSessao(null).pode, false);
 });
+
+// ------------------------------------------------------------------ entrega 3: Ouvir e Ditar
+test("ouvir: a voz e pt-BR, preferindo a natural (Edge) e depois a do Google", () => {
+  const maria = { name: "Microsoft Maria - Portuguese (Brazil)", lang: "pt-BR" };
+  const google = { name: "Google português do Brasil", lang: "pt-BR" };
+  const francisca = { name: "Microsoft Francisca Online (Natural) - Portuguese (Brazil)", lang: "pt-BR" };
+  const david = { name: "Microsoft David - English (United States)", lang: "en-US" };
+  assert.equal(V.escolherVoz([david, maria, google, francisca]), francisca);
+  assert.equal(V.escolherVoz([david, maria, google]), google);
+  assert.equal(V.escolherVoz([david, { name: "Joana", lang: "pt_BR" }]).name, "Joana");
+  assert.equal(V.escolherVoz([david, { name: "Joana", lang: "pt-PT" }]).name, "Joana");
+  assert.equal(V.escolherVoz([david]), null);
+  assert.equal(V.escolherVoz(undefined), null);
+});
+
+test("ouvir: cada frase vira uma fala, para a voz do Google nao cortar no meio", () => {
+  assert.deepEqual(V.frasesParaFalar("Você pediu o mapa. Terminou?  Falta aprovar!"), ["Você pediu o mapa.", "Terminou?", "Falta aprovar!"]);
+  assert.deepEqual(V.frasesParaFalar("Sem ponto no fim"), ["Sem ponto no fim"]);
+  assert.deepEqual(V.frasesParaFalar("   "), []);
+});
+
+test("ditar: o que ele dita entra depois do que ja estava na caixa, junto com o trecho ainda provisorio", () => {
+  assert.equal(V.juntarDitado("", ["revise o PR"]), "revise o PR");
+  assert.equal(V.juntarDitado("Pode seguir.", [" e depois", " mescle "]), "Pode seguir. e depois mescle");
+  assert.equal(V.juntarDitado("Pode seguir.  ", []), "Pode seguir.");
+});
+
+test("ditar: sem reconhecimento de voz no navegador nao ha ditado", () => {
+  const R = function Reconhecer() {};
+  assert.equal(V.suporteDitado({}), null);
+  assert.equal(V.suporteDitado(undefined), null);
+  assert.equal(V.suporteDitado({ webkitSpeechRecognition: R }), R);
+  assert.equal(V.suporteDitado({ SpeechRecognition: R }), R);
+});
+
+test("ditar: o erro do reconhecimento vira um aviso que ele entende", () => {
+  assert.match(V.erroDoDitado("not-allowed"), /microfone/);
+  assert.match(V.erroDoDitado("service-not-allowed"), /microfone/);
+  assert.match(V.erroDoDitado("audio-capture"), /microfone/);
+  assert.match(V.erroDoDitado("no-speech"), /Não ouvi/);
+  assert.match(V.erroDoDitado("network"), /internet/);
+  assert.equal(V.erroDoDitado("aborted"), "");
+  assert.match(V.erroDoDitado("bad-grammar"), /bad-grammar/);
+});
