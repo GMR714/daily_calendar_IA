@@ -19,4 +19,5 @@ app.server.listen(port, process.env.HOST || "127.0.0.1", () => {
     require("node:child_process").spawn("cmd.exe", ["/c", "start", "", "http://localhost:" + port], { windowsHide: true, stdio: "ignore" }).unref();
   }
   startTelegram(app).catch(() => console.error("Nao foi possivel iniciar o Telegram."));
+  app.retomarEntregas();  // resposta da tela que esperava uma sessao parar quando a agenda fechou
 });

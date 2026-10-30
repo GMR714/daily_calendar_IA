@@ -134,3 +134,159 @@ test("cockpit: servidor da agenda fora do ar vira instrucao clara, nao 'Failed t
   assert.equal(V.mensagemDeFalha(new TypeError("Cannot read properties of undefined (reading 'itens')")), "Cannot read properties of undefined (reading 'itens')");
   assert.equal(V.mensagemDeFalha(new Error("O servidor respondeu 503.")), "O servidor respondeu 503.");
 });
+
+// ------------------------------------------------------------------ Mapa de trabalho (29/10)
+const tarefa = (id, cor = "atencao", sessoes = [], extra = {}) => ({ id, titulo: `tarefa ${id}`, status: "aguardando-voce", cor, aberta: true, pasta: false, sessoes, obsidian: "", ...extra });
+const subs = (total, n = Math.min(total, 8)) => ({ total, ativas: 0, itens: Array.from({ length: n }, (_, i) => ({ id: `a${i}`, descricao: `passo ${i}`, tipo: "general-purpose", cor: "sem_sinal", estado: "terminou" })) });
+const sessaoFalsa = (sid, nome, sub = subs(0)) => ({ id: sid.slice(0, 8), sessao: sid, nome, cor: "atencao", estado: "esperando você", tipo: "em segundo plano", viva: false, subsessoes: sub });
+const TRABALHO = {
+  projetos: [
+    { nome: "setup-com-prova", cor: "problema", abertas: 12, vivas: 0, sessoes: 1,
+      tarefas: Array.from({ length: 12 }, (_, i) => tarefa(`T-202610${String(i + 10)}-01`, i ? "problema" : "atencao", i ? [] : ["s1"])) },
+    { nome: "copiloto", cor: "atencao", abertas: 2, vivas: 0, sessoes: 0, tarefas: [tarefa("T-20261023-11"), tarefa("T-20261026-03")] },
+    { nome: "Sem tarefa", cor: "bem", abertas: 0, vivas: 1, sessoes: 2,
+      tarefas: [tarefa("pasta:gabri", "bem", ["s2", "s3"], { titulo: "gabri", status: "", pasta: true })] },
+  ],
+  sessoes: { s1: sessaoFalsa("s1", "Desafio do Marios", subs(12)), s2: sessaoFalsa("s2", "transcricao"), s3: sessaoFalsa("s3", "tasks jornada", subs(2)) },
+};
+const dentro = (p, c) => p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h;
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+test("mapa de trabalho: cada projeto na sua celula, as tarefas em volta e tudo dentro da area", () => {
+  const caixa = { x: 30, y: 50, w: 700, h: 430 };
+  const { celulas } = V.layoutTrabalho(TRABALHO.projetos, caixa);
+  assert.deepEqual(celulas.map(c => c.nome), ["setup-com-prova", "copiloto", "Sem tarefa"]);
+  for (const c of celulas) {
+    assert.ok(dentro(c, caixa), c.nome);
+    assert.ok(c.rotuloY <= caixa.y + caixa.h, `rotulo de ${c.nome} fora da area`);
+    for (const t of c.tarefas) {
+      assert.ok(dentro({ x: t.x - t.r, y: t.y - t.r }, caixa) && dentro({ x: t.x + t.r, y: t.y + t.r }, caixa), t.id);
+      assert.ok(dist(c, t) >= c.r + t.r + 2, `${t.id} encosta no projeto`);
+      for (const outra of celulas) if (outra !== c) assert.ok(dist(c, t) < dist(outra, t), `${t.id} mais perto de ${outra.nome}`);
+    }
+  }
+});
+
+test("mapa de trabalho: mais de 10 tarefas mostra 9 e '+3'; sem projetos, sem celulas", () => {
+  const c = V.layoutTrabalho(TRABALHO.projetos, { x: 0, y: 0, w: 700, h: 430 }).celulas[0];
+  assert.equal(c.tarefas.length, 9);
+  assert.equal(c.mais.n, 3);
+  assert.equal(V.layoutTrabalho(TRABALHO.projetos, { x: 0, y: 0, w: 700, h: 430 }).celulas[1].mais, null);
+  assert.deepEqual(V.layoutTrabalho([], { x: 0, y: 0, w: 700, h: 430 }), { celulas: [] });
+});
+
+function conferirGrafo(g, caixa) {
+  const chaves = new Set(g.nos.map(n => n.chave));
+  assert.equal(chaves.size, g.nos.length, "chave repetida");
+  for (const a of g.arestas) assert.ok(chaves.has(a.de) && chaves.has(a.para), `${a.de} -> ${a.para}`);
+  for (const n of g.nos) assert.ok(n.x - n.r >= 0 && n.x + n.r <= caixa.w && n.y - n.r >= 0 && n.y + n.r <= caixa.h, n.chave);
+  const colunas = {};
+  for (const n of g.nos) (colunas[n.x] ||= []).push(n);
+  for (const col of Object.values(colunas)) {
+    col.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < col.length; i++) assert.ok(col[i].y - col[i - 1].y >= col[i].r + col[i - 1].r, `${col[i - 1].chave} encosta em ${col[i].chave}`);
+  }
+}
+
+test("grafo do projeto: tarefas, sessoes e ate 3 subsessoes por sessao, com '+N' no resto", () => {
+  const caixa = { w: 1100, h: 660 };
+  const g = V.grafoDoItem(TRABALHO, { tipo: "projeto", id: "setup-com-prova" }, caixa);
+  conferirGrafo(g, caixa);
+  assert.equal(g.titulo, "setup-com-prova");
+  const tipos = g.nos.reduce((m, n) => ({ ...m, [n.tipo]: (m[n.tipo] || 0) + 1 }), {});
+  assert.deepEqual(tipos, { projeto: 1, tarefa: 12, sessao: 1, sub: 3, mais: 1 });
+  assert.ok(g.arestas.some(a => a.de === "tarefa:T-20261010-01" && a.para === "sessao:s1"));
+  assert.equal(g.nos.find(n => n.tipo === "mais").rotulo, "+9 subsessões");
+  assert.equal(g.nos.find(n => n.tipo === "sub").sessao, "s1");
+});
+
+test("grafo da tarefa: as sessoes dela e ate 8 subsessoes; 'Sem tarefa' mostra as pastas", () => {
+  const caixa = { w: 1100, h: 660 };
+  const g = V.grafoDoItem(TRABALHO, { tipo: "tarefa", id: "T-20261010-01" }, caixa);
+  conferirGrafo(g, caixa);
+  assert.equal(g.nos.filter(n => n.tipo === "sub").length, 8);
+  assert.equal(g.nos.find(n => n.tipo === "mais").rotulo, "+4 subsessões");
+  const sem = V.grafoDoItem(TRABALHO, { tipo: "projeto", id: "Sem tarefa" }, caixa);
+  conferirGrafo(sem, caixa);
+  assert.deepEqual(sem.nos.filter(n => n.tipo === "pasta").map(n => n.rotulo), ["Sem tarefa · gabri"]);
+  assert.deepEqual(sem.nos.filter(n => n.tipo === "sessao").map(n => n.rotulo).sort(), ["tasks jornada", "transcricao"]);
+});
+
+test("grafo: alvo que nao existe (ou sem dados) nao desenha nada", () => {
+  assert.equal(V.grafoDoItem(TRABALHO, { tipo: "projeto", id: "nao existe" }), null);
+  assert.equal(V.grafoDoItem(TRABALHO, { tipo: "tarefa", id: "T-1" }), null);
+  assert.equal(V.grafoDoItem(null, { tipo: "projeto", id: "copiloto" }), null);
+});
+
+test("conversa: ferramentas seguidas viram um item so; o resto fica como esta", () => {
+  const f = (quem, texto) => ({ quem, texto, hora: "29/10 17:00" });
+  const g = V.agruparFalas([f("voce", "Revise"), f("claude", "Vou ler."), f("ferramenta", "Bash: a"), f("ferramenta", "Read: b"),
+    f("ferramenta", "Grep: c"), f("claude", "Pronto."), f("ferramenta", "Bash: d")]);
+  assert.deepEqual(g.map(x => [x.quem, x.texto]), [["voce", "Revise"], ["claude", "Vou ler."], ["ferramentas", "3 ferramentas"],
+    ["claude", "Pronto."], ["ferramenta", "Bash: d"]]);
+  assert.deepEqual(g[2].itens.map(x => x.texto), ["Bash: a", "Read: b", "Grep: c"]);
+  assert.deepEqual(V.agruparFalas([]), []);
+});
+
+test("conversa: negrito, codigo, titulo e link http viram trechos; outro esquema fica como texto", () => {
+  assert.deepEqual(V.trechosDaFala("## Onde estão\nVeja **isto** e `cli.py` em [mensagem](https://x.example/a?b=1) ou https://y.example/c."), [
+    { tipo: "negrito", texto: "Onde estão" }, { tipo: "texto", texto: "\nVeja " }, { tipo: "negrito", texto: "isto" }, { tipo: "texto", texto: " e " },
+    { tipo: "codigo", texto: "cli.py" }, { tipo: "texto", texto: " em " }, { tipo: "link", texto: "mensagem", href: "https://x.example/a?b=1" },
+    { tipo: "texto", texto: " ou " }, { tipo: "link", texto: "https://y.example/c", href: "https://y.example/c" }, { tipo: "texto", texto: "." }]);
+  assert.deepEqual(V.trechosDaFala("[x](javascript:alert(1))"), [{ tipo: "texto", texto: "[x](javascript:alert(1))" }]);
+  assert.deepEqual(V.trechosDaFala(""), []);
+});
+
+test("sessao: terminal nao responde pela tela; trabalhando manda quando parar; viva pode parar", () => {
+  assert.deepEqual(V.acoesDaSessao({ tipo: "interativa", estado: "parada", viva: true }),
+    { pode: false, motivo: "Aberta num terminal: responda por lá.", enviar: "", parar: false, fila: 0 });
+  assert.deepEqual(V.acoesDaSessao({ tipo: "em segundo plano", estado: "trabalhando", viva: true, na_fila: 2 }),
+    { pode: true, motivo: "", enviar: "Mandar quando parar", parar: true, fila: 2 });
+  assert.deepEqual(V.acoesDaSessao({ tipo: "em segundo plano", estado: "esperando você: R-77", viva: false }),
+    { pode: true, motivo: "", enviar: "Enviar", parar: false, fila: 0 });
+  assert.equal(V.acoesDaSessao(null).pode, false);
+});
+
+// ------------------------------------------------------------------ entrega 3: Ouvir e Ditar
+test("ouvir: a voz e pt-BR, preferindo a natural (Edge) e depois a do Google", () => {
+  const maria = { name: "Microsoft Maria - Portuguese (Brazil)", lang: "pt-BR" };
+  const google = { name: "Google português do Brasil", lang: "pt-BR" };
+  const francisca = { name: "Microsoft Francisca Online (Natural) - Portuguese (Brazil)", lang: "pt-BR" };
+  const david = { name: "Microsoft David - English (United States)", lang: "en-US" };
+  assert.equal(V.escolherVoz([david, maria, google, francisca]), francisca);
+  assert.equal(V.escolherVoz([david, maria, google]), google);
+  assert.equal(V.escolherVoz([david, { name: "Joana", lang: "pt_BR" }]).name, "Joana");
+  assert.equal(V.escolherVoz([david, { name: "Joana", lang: "pt-PT" }]).name, "Joana");
+  assert.equal(V.escolherVoz([david]), null);
+  assert.equal(V.escolherVoz(undefined), null);
+});
+
+test("ouvir: cada frase vira uma fala, para a voz do Google nao cortar no meio", () => {
+  assert.deepEqual(V.frasesParaFalar("Você pediu o mapa. Terminou?  Falta aprovar!"), ["Você pediu o mapa.", "Terminou?", "Falta aprovar!"]);
+  assert.deepEqual(V.frasesParaFalar("Sem ponto no fim"), ["Sem ponto no fim"]);
+  assert.deepEqual(V.frasesParaFalar("   "), []);
+});
+
+test("ditar: o que ele dita entra depois do que ja estava na caixa, junto com o trecho ainda provisorio", () => {
+  assert.equal(V.juntarDitado("", ["revise o PR"]), "revise o PR");
+  assert.equal(V.juntarDitado("Pode seguir.", [" e depois", " mescle "]), "Pode seguir. e depois mescle");
+  assert.equal(V.juntarDitado("Pode seguir.  ", []), "Pode seguir.");
+});
+
+test("ditar: sem reconhecimento de voz no navegador nao ha ditado", () => {
+  const R = function Reconhecer() {};
+  assert.equal(V.suporteDitado({}), null);
+  assert.equal(V.suporteDitado(undefined), null);
+  assert.equal(V.suporteDitado({ webkitSpeechRecognition: R }), R);
+  assert.equal(V.suporteDitado({ SpeechRecognition: R }), R);
+});
+
+test("ditar: o erro do reconhecimento vira um aviso que ele entende", () => {
+  assert.match(V.erroDoDitado("not-allowed"), /microfone/);
+  assert.match(V.erroDoDitado("service-not-allowed"), /microfone/);
+  assert.match(V.erroDoDitado("audio-capture"), /microfone/);
+  assert.match(V.erroDoDitado("no-speech"), /Não ouvi/);
+  assert.match(V.erroDoDitado("network"), /internet/);
+  assert.equal(V.erroDoDitado("aborted"), "");
+  assert.match(V.erroDoDitado("bad-grammar"), /bad-grammar/);
+});

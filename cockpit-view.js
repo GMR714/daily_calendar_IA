@@ -137,5 +137,163 @@
     return texto || "Erro desconhecido.";
   }
 
-  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian, mensagemDeFalha, ORDEM_COR };
+  // Mapa de trabalho (29/10): cada projeto numa celula da grade, com as tarefas em orbita. Mais de `maxTarefas` vira
+  // "+N" no lugar da ultima. O nome do projeto fica embaixo da orbita, dentro da celula.
+  function layoutTrabalho(projetos, caixa, { maxTarefas = 10 } = {}) {
+    const lista = projetos || [];
+    if (!lista.length) return { celulas: [] };
+    const cols = Math.max(1, Math.min(lista.length, Math.round(Math.sqrt((lista.length * caixa.w) / caixa.h))));
+    const cw = caixa.w / cols, ch = caixa.h / Math.ceil(lista.length / cols);
+    const rotulo = 30;
+    const orbita = Math.max(18, Math.min(cw, ch - rotulo) / 2 - 12);
+    const rTarefa = Math.max(4, Math.min(8, orbita / 6));
+    return { celulas: lista.map((p, i) => {
+      const x = caixa.x + ((i % cols) + 0.5) * cw;
+      const y = caixa.y + (Math.floor(i / cols) + 0.5) * ch - rotulo / 2;
+      const corte = p.tarefas.length > maxTarefas ? maxTarefas - 1 : p.tarefas.length;
+      const vagas = p.tarefas.length > corte ? corte + 1 : corte;
+      const ponto = k => {
+        const a = -Math.PI / 2 + (2 * Math.PI * k) / Math.max(vagas, 1);
+        return { x: x + orbita * Math.cos(a), y: y + orbita * Math.sin(a) };
+      };
+      return {
+        nome: p.nome, cor: p.cor, x, y, orbita, largura: cw, rotuloY: y + orbita + rTarefa + 16,
+        r: Math.max(10, Math.min(orbita - rTarefa - 6, 10 + 1.5 * (p.abertas || p.tarefas.length))),
+        tarefas: p.tarefas.slice(0, corte).map((t, k) => ({ id: t.id, titulo: t.titulo, status: t.status, cor: t.cor, pasta: t.pasta, r: rTarefa, ...ponto(k) })),
+        mais: p.tarefas.length > corte ? { n: p.tarefas.length - corte, ...ponto(corte) } : null,
+      };
+    }) };
+  }
+
+  // Grafo de um projeto ou de uma tarefa (29/10), em camadas da esquerda para a direita: projeto → tarefas → sessoes →
+  // subsessoes. Cada folha ganha uma faixa de altura e o pai fica no meio dos filhos; o rotulo vai a direita do no.
+  const RAIO_NO = { projeto: 22, tarefa: 12, pasta: 12, sessao: 10, sub: 6, mais: 5 };
+  function grafoDoItem(trabalho, alvo, caixa = { w: 1100, h: 660 }, { maxSub, maxTarefas = 14 } = {}) {
+    if (!trabalho || !alvo) return null;
+    const sessoes = trabalho.sessoes || {};
+    const projetos = trabalho.projetos || [];
+    const vistas = new Map();
+    const chave = base => { const n = (vistas.get(base) || 0) + 1; vistas.set(base, n); return n > 1 ? `${base}#${n}` : base; };
+    const mais = (id, n, oque) => ({ chave: chave(`mais:${id}`), tipo: "mais", id, rotulo: `+${n} ${oque}`, cor: "sem_sinal", filhos: [] });
+    const noSessao = (s, limite) => {
+      const sub = s.subsessoes || { total: 0, itens: [] };
+      const mostradas = (sub.itens || []).slice(0, limite);
+      const filhos = mostradas.map(x => ({ chave: chave(`sub:${s.sessao}:${x.id}`), tipo: "sub", id: x.id, sessao: s.sessao,
+        rotulo: x.descricao || x.tipo || x.id, cor: x.cor, dica: x.estado, filhos: [] }));
+      if ((sub.total || 0) > mostradas.length) filhos.push({ ...mais(s.sessao, sub.total - mostradas.length, "subsessões"), sessao: s.sessao });
+      return { chave: chave(`sessao:${s.sessao}`), tipo: "sessao", id: s.sessao, sessao: s.sessao, rotulo: s.nome, cor: s.cor, dica: s.estado, filhos };
+    };
+    const noTarefa = (t, limite) => ({ chave: chave(`tarefa:${t.id}`), tipo: t.pasta ? "pasta" : "tarefa", id: t.id,
+      rotulo: t.pasta ? `Sem tarefa · ${t.titulo}` : t.titulo, cor: t.cor, dica: t.pasta ? "sessões sem tarefa nesta pasta" : `${t.id} · ${t.status}`,
+      filhos: t.sessoes.filter(sid => sessoes[sid]).map(sid => noSessao(sessoes[sid], limite)) });
+    let raiz, titulo;
+    if (alvo.tipo === "projeto") {
+      const p = projetos.find(x => x.nome === alvo.id);
+      if (!p) return null;
+      const corte = p.tarefas.length > maxTarefas ? maxTarefas - 1 : p.tarefas.length;
+      const filhos = p.tarefas.slice(0, corte).map(t => noTarefa(t, maxSub || 3));
+      if (p.tarefas.length > corte) filhos.push(mais(p.nome, p.tarefas.length - corte, "tarefas"));
+      raiz = { chave: chave(`projeto:${p.nome}`), tipo: "projeto", id: p.nome, rotulo: p.nome, cor: p.cor, filhos };
+      titulo = p.nome;
+    } else if (alvo.tipo === "tarefa") {
+      const t = projetos.flatMap(p => p.tarefas).find(x => x.id === alvo.id);
+      if (!t) return null;
+      raiz = noTarefa(t, maxSub || 8);
+      titulo = t.pasta ? `Sem tarefa · ${t.titulo}` : `${t.id} · ${t.titulo}`;
+    } else return null;
+
+    const altura = no => 1 + Math.max(0, ...no.filhos.map(altura));
+    const folhas = no => (no.filhos.length ? no.filhos.reduce((n, f) => n + folhas(f), 0) : 1);
+    const niveis = altura(raiz), margem = 40;
+    const passo = (caixa.h - 2 * margem) / folhas(raiz);
+    const colX = nivel => 60 + (nivel * (caixa.w - 320)) / Math.max(niveis - 1, 1);
+    const nos = [], arestas = [];
+    let vaga = 0;
+    const posicionar = (no, nivel) => {
+      const filhos = no.filhos.map(f => posicionar(f, nivel + 1));
+      const y = filhos.length ? (filhos[0].y + filhos[filhos.length - 1].y) / 2 : margem + (vaga++ + 0.5) * passo;
+      const item = { chave: no.chave, tipo: no.tipo, id: no.id, sessao: no.sessao || null, rotulo: no.rotulo, cor: no.cor, dica: no.dica || "",
+        x: colX(nivel), y, r: Math.min(RAIO_NO[no.tipo], passo / 2), nivel };
+      nos.push(item);
+      for (const f of filhos) arestas.push({ de: item.chave, para: f.chave });
+      return item;
+    };
+    posicionar(raiz, 0);
+    return { titulo, tipo: alvo.tipo, nos, arestas };
+  }
+
+  // Ferramentas seguidas viram um item so na conversa (29/10): 6 em cada 10 linhas de uma sessao sao ferramenta.
+  function agruparFalas(falas) {
+    const saida = [];
+    for (const f of falas || []) {
+      const ultimo = saida[saida.length - 1];
+      if (f.quem === "ferramenta" && ultimo && ultimo.quem === "ferramentas") ultimo.itens.push(f);
+      else if (f.quem === "ferramenta" && ultimo && ultimo.quem === "ferramenta") saida[saida.length - 1] = { quem: "ferramentas", hora: ultimo.hora, itens: [ultimo, f] };
+      else saida.push(f);
+    }
+    return saida.map(x => (x.quem === "ferramentas" ? { ...x, texto: `${x.itens.length} ferramentas` } : x));
+  }
+
+  // Markdown leve da conversa (29/10): titulo e negrito, codigo e link http(s) viram trechos; o resto fica como texto.
+  // A tela monta cada trecho como texto, <b>, <code> ou <a>: nada dos dados vira HTML.
+  function trechosDaFala(texto) {
+    const s = String(texto || "").replace(/^#{1,6}[ \t]+(.+)$/gm, "**$1**");
+    const re = /\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)<>"]+)/g;
+    const saida = [];
+    const solto = t => { if (t) saida.push({ tipo: "texto", texto: t }); };
+    let ultimo = 0, m;
+    while ((m = re.exec(s))) {
+      solto(s.slice(ultimo, m.index));
+      if (m[1] !== undefined) saida.push({ tipo: "negrito", texto: m[1] });
+      else if (m[2] !== undefined) saida.push({ tipo: "codigo", texto: m[2] });
+      else if (m[3] !== undefined) saida.push({ tipo: "link", texto: m[3], href: m[4] });
+      else {
+        const url = m[5].replace(/[.,;:!?]+$/, "");
+        saida.push({ tipo: "link", texto: url, href: url });
+        solto(m[5].slice(url.length));
+      }
+      ultimo = re.lastIndex;
+    }
+    solto(s.slice(ultimo));
+    return saida;
+  }
+
+  // O que a gaveta da sessao oferece (entrega 2): sessao de terminal so se le; trabalhando, a resposta espera ela parar;
+  // com o processo vivo, da para parar (a conversa fica e a resposta seguinte a retoma).
+  function acoesDaSessao(s) {
+    if (!s) return { pode: false, motivo: "", enviar: "", parar: false, fila: 0 };
+    if (s.tipo === "interativa") return { pode: false, motivo: "Aberta num terminal: responda por lá.", enviar: "", parar: false, fila: 0 };
+    return { pode: true, motivo: "", enviar: s.estado === "trabalhando" ? "Mandar quando parar" : "Enviar", parar: Boolean(s.viva), fila: s.na_fila || 0 };
+  }
+
+  // Ouvir (entrega 3): a voz pt-BR do navegador. A natural do Edge soa melhor; depois a do Google; depois qualquer pt.
+  function escolherVoz(vozes) {
+    const lista = Array.from(vozes || []);
+    const lingua = v => String(v.lang || "").replace("_", "-").toLowerCase();
+    const br = lista.filter(v => lingua(v) === "pt-br");
+    return br.find(v => /natural/i.test(v.name)) || br.find(v => /google/i.test(v.name)) || br[0]
+      || lista.find(v => lingua(v).startsWith("pt")) || null;
+  }
+  // Uma fala por frase: a voz do Google no Chrome para no meio de falas longas (~15 s).
+  function frasesParaFalar(texto) {
+    return String(texto || "").split(/(?<=[.!?…])\s+/).map(f => f.trim()).filter(Boolean);
+  }
+
+  // Ditar: o texto ditado (final e provisorio) entra depois do que ja estava na caixa. Nada e enviado sozinho.
+  function juntarDitado(base, partes) {
+    return [String(base || "").trim(), ...Array.from(partes || [], p => String(p || "").trim())].filter(Boolean).join(" ");
+  }
+  function suporteDitado(janela) {
+    return (janela && (janela.SpeechRecognition || janela.webkitSpeechRecognition)) || null;
+  }
+  function erroDoDitado(codigo) {
+    if (codigo === "aborted") return "";
+    if (["not-allowed", "service-not-allowed", "audio-capture"].includes(codigo)) return "O ditado não conseguiu usar o microfone. Libere o microfone para esta página no cadeado da barra de endereço.";
+    if (codigo === "no-speech") return "Não ouvi nada. Clique em Ditar e fale de novo.";
+    if (codigo === "network") return "O ditado precisa de internet: o navegador manda o áudio para o serviço de voz dele.";
+    return `O ditado parou (${codigo}).`;
+  }
+
+  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian,
+    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });
