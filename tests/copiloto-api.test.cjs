@@ -124,7 +124,7 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   const html = await (await fetch(base + "/cockpit")).text();
   assert.match(html, /<button id="rodarAgora"/);
   assert.match(html, /<button id="voltarMapa"/);  // o grafo de um projeto ou tarefa volta ao Mapa
-  assert.match(html, /cockpit\.js\?v=7/);
-  assert.match(html, /cockpit-view\.js\?v=6/);
+  assert.match(html, /cockpit\.js\?v=8/);
+  assert.match(html, /cockpit-view\.js\?v=7/);
   assert.match(html, /cockpit\.css\?v=6/);
 });

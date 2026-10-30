@@ -127,6 +127,15 @@
   }
   // A nota da tarefa no Obsidian, onde esta o que decidir. So o esquema do Obsidian vira link.
   const linkObsidian = item => (item && /^obsidian:\/\/open\?/.test(String(item.obsidian || "")) ? item.obsidian : "");
+  // "Failed to fetch" (Chrome), "NetworkError..." (Firefox) e "Load failed" (Safari) sao o navegador sem resposta do
+  // servidor da agenda: a janela do iniciar.cmd fechou. Qualquer outro erro segue com o texto dele.
+  function mensagemDeFalha(erro) {
+    const texto = String((erro && erro.message) || erro || "");
+    if (/^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed)$/i.test(texto.trim())) {
+      return "O servidor da agenda não está respondendo. Abra o iniciar.cmd e deixe a janela preta aberta; a tela volta sozinha em até 30 s.";
+    }
+    return texto || "Erro desconhecido.";
+  }
 
   // Mapa de trabalho (29/10): cada projeto numa celula da grade, com as tarefas em orbita. Mais de `maxTarefas` vira
   // "+N" no lugar da ultima. O nome do projeto fica embaixo da orbita, dentro da celula.
@@ -286,5 +295,5 @@
   }
 
   return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian,
-    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
+    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });
