@@ -30,9 +30,11 @@ function pedidoLocal(endereco) {
   return ENDERECOS_LOCAIS.includes(String(endereco || ""));
 }
 
-// Rotas que so atendem este computador: as que dao ordem e as que leem conversa de sessao, que pode ter dado sensivel.
+// Rotas que so atendem este computador: as que dao ordem e as que leem conversa de sessao ou nota de tarefa, que podem
+// ter dado sensivel.
 function rotaSoLocal(caminho) {
-  return caminho === "/api/overlay/abrir" || caminho.startsWith("/api/copiloto/") || caminho.startsWith("/api/sessoes/");
+  return caminho === "/api/overlay/abrir" || caminho.startsWith("/api/copiloto/") || caminho.startsWith("/api/sessoes/")
+    || caminho.startsWith("/api/tarefas/");
 }
 
 module.exports = { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal };

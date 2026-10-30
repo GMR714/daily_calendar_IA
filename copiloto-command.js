@@ -19,7 +19,7 @@ function validarResposta(body = {}) {
   return { acao, item, texto };
 }
 
-// Excluir tarefa (29/10): so o id no formato das notas do vault chega ao Copiloto.
+// Excluir tarefa (29/10) e ler a historia dela (30/10): so o id no formato das notas do vault chega ao Copiloto.
 function validarExclusao({ tarefa } = {}) {
   const id = String(tarefa || "");
   if (!/^T-\d{8}-\d{1,3}$/.test(id)) throw Object.assign(new Error("Tarefa invalida."), { status: 400 });
@@ -53,6 +53,9 @@ function erroDoComando(error) {
   }
   if (/invalid choice: 'resumo'/i.test(texto)) {
     return "O Copiloto instalado ainda nao faz o resumo para ouvir. Mescle o PR dele no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
+  }
+  if (/invalid choice: 'historia'/i.test(texto)) {
+    return "O Copiloto instalado ainda nao conta a historia da tarefa. Mescle o PR dela no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
   }
   if (/invalid choice: 'sessao'/i.test(texto)) {
     return "O Copiloto instalado ainda nao le as sessoes do Mapa de trabalho. Mescle o PR dele no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
@@ -94,6 +97,8 @@ function createCopilotoCommands({ run = runCli } = {}) {
     resumirSessao: sessao => run(["sessao", "resumo", sessao], { timeoutMs: 90000 }),
     // a nota fica no vault, fechada, com a linha no registro; mudar o status de volta desfaz
     excluirTarefa: id => run(["tarefa", "registrar", id, "Descartada pela tela do cockpit.", "--status", "descartada"]),
+    // so le a nota: pedido, passos do Registro, agora, meta e os rascunhos pendentes dela
+    historiaDaTarefa: id => run(["tarefa", "historia", id]),
   };
 }
 
