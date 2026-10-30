@@ -128,8 +128,53 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   assert.match(html, /<button id="recolherRotinas"/);
   assert.match(html, /<div id="historia"/);  // o clique numa bola troca as bolas pela historia da tarefa
   assert.match(html, /cockpit\.js\?v=11/);
-  assert.match(html, /cockpit-view\.js\?v=10/);
+  assert.match(html, /cockpit-view\.js\?v=11/);
   assert.match(html, /cockpit\.css\?v=9/);
+});
+
+// ------------------------------------------------------------------ a resposta pede o ciclo (30/10)
+const esperar = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+test("copiloto: a resposta pela tela pede um ciclo cicloMs depois da ultima, e respostas seguidas pedem um so", async t => {
+  const copiloto = copilotoFalso();
+  const base = await abrir(t, copiloto, { cicloMs: 300 });
+  await post(base, "/api/copiloto/responder", { acao: "aprovar", item: "R-07" });
+  await esperar(200);
+  await post(base, "/api/copiloto/responder", { acao: "descartar", item: "R-08" });
+  await post(base, "/api/copiloto/responder", { acao: "responder", item: "T-20261029-03", texto: "pode seguir" });
+  await esperar(150);
+  assert.equal(copiloto.chamadas.rodar, 0);  // passou o tempo da primeira, nao o da ultima
+  await esperar(400);
+  assert.equal(copiloto.chamadas.rodar, 1);
+});
+
+test("copiloto: com um rodar agora ainda vivo, o servidor tenta de novo ate o pedido entrar", async t => {
+  const estados = ["ja-pedido", "ja-pedido", "na-fila", "iniciado"];
+  let vezes = 0;
+  const base = await abrir(t, { responder: async r => ({ id: "E-20261030-01", ...r }), rodar: async () => ({ estado: estados[vezes++] }) },
+    { cicloMs: 20 });
+  await post(base, "/api/copiloto/responder", { acao: "aprovar", item: "R-07" });
+  await esperar(400);
+  assert.equal(vezes, 3);  // o ciclo anterior podia ja ter lido a fila; parou quando o pedido entrou
+});
+
+test("copiloto: pausado ou com erro, o servidor nao insiste no ciclo", async t => {
+  for (const resultado of [async () => ({ estado: "pausado" }), async () => { throw new Error("cli.py fora do ar"); }]) {
+    let vezes = 0;
+    const base = await abrir(t, { responder: async r => ({ id: "E-20261030-01", ...r }), rodar: async () => { vezes += 1; return resultado(); } },
+      { cicloMs: 20 });
+    await post(base, "/api/copiloto/responder", { acao: "aprovar", item: "R-07" });
+    await esperar(250);
+    assert.equal(vezes, 1);
+  }
+});
+
+test("copiloto: resposta recusada nao pede ciclo", async t => {
+  const copiloto = copilotoFalso();
+  const base = await abrir(t, copiloto, { cicloMs: 20 });
+  assert.equal((await post(base, "/api/copiloto/responder", { acao: "apagar", item: "R-07" })).status, 400);
+  await esperar(150);
+  assert.equal(copiloto.chamadas.rodar, 0);
 });
 
 // ------------------------------------------------------------------ excluir tarefa (29/10)

@@ -65,6 +65,31 @@ No Copiloto (`feat/caixa-de-entrada`, ADR 015):
 - [x] O "Rodar agora" com ciclo rodando não derruba nada: o ciclo novo espera a vez. Com o copiloto pausado, nada roda.
 - [x] Em 1536×730 o cockpit cabe sem a página rolar. A gaveta mostra a mensagem inteira e os botões.
 
+## 30/10: a resposta pede o ciclo sozinha
+
+> "eu mando fazer as coisas que repondi la e nao parece que esta fazendo tudo eu queria que disparasse ate concluir minhas
+> tarefas" (30/10)
+
+A resposta esperava o ciclo de 30 em 30 min, que só roda nos dias úteis, das 08:00 às 19:30: à noite e no fim de semana,
+ficava parada até o dia útil seguinte. No Copiloto, o ADR 018 faz a resposta continuar a conversa do worker da tarefa.
+
+- **O servidor pede o ciclo** (`server-runtime.js`): cada resposta gravada arma um `cli.py ciclo agora` para 1 min depois
+  (`cicloMs`). Resposta nova nesse minuto empurra o pedido para 1 min depois dela: respostas seguidas viram um ciclo só.
+- **"Rodar agora" anterior ainda vivo** (`ja-pedido`): esse ciclo pode já ter lido a fila, então o servidor tenta de novo a
+  cada minuto até o pedido entrar (`iniciado` ou `na-fila`). O Copiloto só considera vivo um pedido de até 2 h. Pausado ou
+  com erro, o servidor para; a próxima resposta arma de novo.
+- **Fila "Você":** no primeiro minuto e meio, o item respondido pela tela mostra "· ciclo em ~1 min"; depois, "· espera o
+  ciclo". A resposta pela DM continua com "· espera o ciclo".
+
+Critérios de aceite:
+
+- [x] Uma resposta pela tela pede um ciclo 1 min depois; respostas seguidas pedem um só. Conferido em 30/10 com o servidor
+  de verdade e um `cli.py` de mentira: respostas às 12:53:40 e às 12:53:46, um `ciclo agora` só, às 12:54:46.
+- [x] Com um "rodar agora" ainda vivo, o servidor tenta de novo até o pedido entrar; pausado ou com erro, não insiste
+  (testes da API).
+- [x] O item respondido pela tela mostra "ciclo em ~1 min" e, passados 90 s, "espera o ciclo" (teste do rótulo; a tela não
+  foi fotografada).
+
 ## Fora do escopo
 
 - **Conversa livre com a orquestradora pela tela (fase 3):** a caixa de entrada já leva o texto; falta a resposta voltar para a tela.

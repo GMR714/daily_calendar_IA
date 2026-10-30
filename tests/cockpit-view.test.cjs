@@ -118,6 +118,15 @@ test("fila Voce: rotulo da resposta que espera o ciclo", () => {
   assert.equal(V.rotuloDaResposta({ tipo: "decidir" }), "");
 });
 
+test("fila Voce: resposta pela tela pede o ciclo em ~1 min; passados 90 s, ou pela DM, espera o ciclo", () => {
+  const em = "2026-10-30T14:00:00";  // o Copiloto grava a hora local, sem fuso
+  const aos = segundos => new Date(2026, 9, 30, 14, 0, segundos).getTime();
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "aprovar", origem: "tela", em } }, aos(5)), "Aprovado na tela · ciclo em ~1 min");
+  assert.equal(V.rotuloDaResposta({ tipo: "decidir", resposta: { acao: "responder", origem: "tela", em } }, aos(89)), "Respondido na tela · ciclo em ~1 min");
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "aprovar", origem: "tela", em } }, aos(91)), "Aprovado na tela · espera o ciclo");
+  assert.equal(V.rotuloDaResposta({ tipo: "dar ok", resposta: { acao: "aprovar", origem: "dm", em } }, aos(5)), "Aprovado na DM · espera o ciclo");
+});
+
 test("fila Voce: so link do Obsidian vira link clicavel na gaveta", () => {
   const ok = "obsidian://open?vault=Obsidian%20Vault&file=Seazone%2FTarefas%2FT-20261023-05.md";
   assert.equal(V.linkObsidian({ obsidian: ok }), ok);

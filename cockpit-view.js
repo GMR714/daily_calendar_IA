@@ -163,11 +163,14 @@
     if (nomes.length === 1) return `${base} A sessão ${nomes[0]} continua; o Parar está na gaveta dela.`;
     return `${base} As sessões ${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]} continuam; o Parar está na gaveta de cada uma.`;
   }
-  function rotuloDaResposta(item) {
+  // A resposta pela tela pede o ciclo sozinha, 1 min depois (30/10): no primeiro minuto e meio, o rotulo diz isso.
+  // A da DM so entra no ciclo de 30 em 30 min. `em` e a hora local que o Copiloto grava.
+  function rotuloDaResposta(item, agora = Date.now()) {
     const r = item && item.resposta;
     if (!r) return "";
     const feito = r.acao === "aprovar" ? "Aprovado" : r.acao === "descartar" ? "Descartado" : item.tipo === "dar ok" ? "Ajuste pedido" : "Respondido";
-    return `${feito} ${r.origem === "dm" ? "na DM" : "na tela"} · espera o ciclo`;
+    const logo = r.origem !== "dm" && agora - Date.parse(r.em) < 90000;
+    return `${feito} ${r.origem === "dm" ? "na DM" : "na tela"} · ${logo ? "ciclo em ~1 min" : "espera o ciclo"}`;
   }
   // A nota da tarefa no Obsidian, onde esta o que decidir. So o esquema do Obsidian vira link.
   const linkObsidian = item => (item && /^obsidian:\/\/open\?/.test(String(item.obsidian || "")) ? item.obsidian : "");
