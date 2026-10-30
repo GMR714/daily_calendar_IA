@@ -295,3 +295,21 @@ p.sessao-resposta { color: var(--muted); font-size: 13px; }
 .mini.perigo { color: var(--red); border-color: rgba(163, 63, 63, .35); }
 .mini.perigo:hover { border-color: var(--red); }
 .mini.perigo[data-confirmar] { background: var(--red); color: #fff; border-color: var(--red); }
+/* Rotinas recolhivel (30/10): fechada, vira uma faixa fina com o selo da pior cor, e a fila Voce ganha o espaco */
+.rotinas-alca { display: none; flex: 1; flex-direction: column; align-items: center; gap: 12px; padding: 14px 0; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.rotinas-alca:hover { background: var(--surface-2); }
+.alca-rotulo, .rotinas-alca .selo { writing-mode: vertical-rl; transform: rotate(180deg); }
+.alca-rotulo { font-size: 14px; font-weight: 700; letter-spacing: .02em; }
+.rotinas-alca .selo { font-size: 11.5px; font-weight: 700; }
+.selo.problema { color: var(--problema); }
+.selo.atencao { color: var(--atencao); }
+.selo.bem { color: var(--bem); }
+.selo.sem_sinal { color: var(--muted); }
+#coluna-rotinas .coluna-topo { justify-content: flex-start; }
+#coluna-rotinas .coluna-topo .contagem { margin-left: auto; }
+@media (min-width: 901px) {
+  body[data-rotinas="fechada"] .colunas { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) 46px; }
+  body[data-rotinas="fechada"] #coluna-rotinas > :not(.rotinas-alca) { display: none; }
+  body[data-rotinas="fechada"] .rotinas-alca { display: flex; }
+}
+@media (max-width: 900px) { #recolherRotinas { display: none; } }

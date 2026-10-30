@@ -4,10 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cockpit da IA</title>
-    <link rel="stylesheet" href="cockpit.css?v=7" />
+    <link rel="stylesheet" href="cockpit.css?v=8" />
     <link rel="stylesheet" href="nav-rail.css?v=1" />
   </head>
-  <body class="cockpit" data-coluna="agentes">
+  <body class="cockpit" data-coluna="agentes" data-rotinas="fechada">
     <nav id="rail"></nav>
     <div class="tela">
       <header class="topo">
@@ -47,7 +47,8 @@
               <div id="voce" class="lista"></div>
             </section>
             <section class="coluna" aria-labelledby="t-rotinas" id="coluna-rotinas">
-              <header class="coluna-topo"><h2 id="t-rotinas">Rotinas</h2><span id="n-rotinas" class="contagem"></span></header>
+              <button id="abrirRotinas" class="rotinas-alca" type="button" aria-controls="coluna-rotinas" title="Abrir as rotinas"><span class="alca-rotulo">Rotinas</span><span id="rotinas-selo" class="selo"></span></button>
+              <header class="coluna-topo"><h2 id="t-rotinas">Rotinas</h2><span id="n-rotinas" class="contagem"></span><button id="recolherRotinas" class="mini" type="button" title="Recolher as rotinas e dar o espaço para a fila Você">Recolher</button></header>
               <div id="rotinas-filtros" class="segmentos" role="group" aria-label="Segmento"></div>
               <div id="linha-dia" class="linha-dia" aria-hidden="true"></div>
               <div id="rotinas" class="lista"></div>
@@ -72,7 +73,7 @@
     </aside>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script src="nav-rail.js?v=1"></script>
-    <script src="cockpit-view.js?v=8"></script>
-    <script src="cockpit.js?v=9"></script>
+    <script src="cockpit-view.js?v=9"></script>
+    <script src="cockpit.js?v=10"></script>
   </body>
 </html>

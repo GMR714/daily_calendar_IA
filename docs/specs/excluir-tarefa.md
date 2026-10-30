@@ -64,6 +64,20 @@ Assumida, porque ele não disse como excluir:
 - [x] O rascunho não ganha Excluir e continua com Descartar. Há teste.
 - [x] Pedido de outro site, sem JSON ou com id fora do formato é barrado antes de chegar ao Copiloto. Há testes: 403, 415 e 400, e o Copiloto não é chamado.
 
+## Ajuste de 30/10: apagar sem abrir e Rotinas recolhível
+
+> "quero que a parte da direita ali seja um toggle que eu possa expandir e que de mais espaço para a do meio e que [nela] eu possa
+> deletar com um botao sem entrar na task" (30/10)
+
+- **Apagar sem abrir:** o card de tarefa já tem Excluir. O card de rascunho ganha Descartar no próprio card, também com segundo clique. O descarte vai para a caixa de entrada e o Copiloto trata no próximo ciclo, como o Descartar da gaveta.
+- **Rotinas recolhível:** em tela larga, a coluna Rotinas começa recolhida numa faixa de 46 px, com o selo da pior cor ("1 erro", "2 atenção" ou "11 ok"). O clique abre, e "Recolher" fecha. A escolha fica guardada no navegador. Em tela estreita, as colunas continuam como abas.
+
+### Critérios de aceite do ajuste
+
+- [x] Com Rotinas recolhida, a fila Você fica mais larga, e a página não rola. Medido em 30/10 a 1536x730: as colunas passaram de 494, 472 e 430 px para 500, 850 e 46 px.
+- [x] O selo da faixa mostra a pior cor das rotinas. Há teste.
+- [x] O rascunho é descartado pelo card sem abrir a gaveta: o primeiro clique vira "Confirmar", e o segundo grava o descarte. Conferido em 30/10 num COPILOTO_HOME de teste: o card mostrou "Descartado na tela · espera o ciclo", e a caixa de entrada recebeu `descartar R-01`.
+
 ## Fora do escopo
 
 - Apagar o arquivo da nota.

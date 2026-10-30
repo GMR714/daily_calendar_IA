@@ -321,3 +321,12 @@ test("excluir: a tarefa excluida sai da fila e do Mapa ate o Copiloto confirmar"
   assert.deepEqual([...V.semExcluidas(confirmada, new Set(["T-20261029-01", "T-20261029-02"])).pendentes], []);
   assert.equal(V.semExcluidas(dados, new Set()).dados, dados);
 });
+
+// ------------------------------------------------------------------ Rotinas recolhivel (30/10)
+test("rotinas recolhidas: o selo mostra a pior cor, para um erro nao passar despercebido", () => {
+  const r = cor => ({ nome: cor, cor });
+  assert.deepEqual(V.resumoRotinas([r("bem"), r("bem"), r("problema"), r("atencao")]), { cor: "problema", texto: "1 erro" });
+  assert.deepEqual(V.resumoRotinas([r("bem"), r("atencao"), r("atencao")]), { cor: "atencao", texto: "2 atenção" });
+  assert.deepEqual(V.resumoRotinas([r("bem"), r("bem"), r("sem_sinal")]), { cor: "bem", texto: "2 ok" });
+  assert.deepEqual(V.resumoRotinas([]), { cor: "sem_sinal", texto: "nenhuma" });
+});

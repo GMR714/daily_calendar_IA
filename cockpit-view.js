@@ -147,6 +147,14 @@
     return { dados: { ...dados, voce: { ...voce, itens, total: Math.max(0, (voce.total || 0) - ((voce.itens || []).length - itens.length)) },
       trabalho: { ...t, projetos } }, pendentes };
   }
+  // Rotinas recolhida (30/10): o selo da faixa mostra a pior cor, para um erro nao passar despercebido.
+  function resumoRotinas(rotinas) {
+    const lista = Array.from(rotinas || []);
+    const n = cor => lista.filter(r => r.cor === cor).length;
+    if (n("problema")) return { cor: "problema", texto: `${n("problema")} erro` };
+    if (n("atencao")) return { cor: "atencao", texto: `${n("atencao")} atenção` };
+    return n("bem") ? { cor: "bem", texto: `${n("bem")} ok` } : { cor: "sem_sinal", texto: "nenhuma" };
+  }
   // A sessao de uma tarefa excluida continua: o aviso diz qual, para ele parar pela gaveta dela se quiser.
   function avisoDaExclusao(vivas) {
     const nomes = Array.from(vivas || []);
@@ -330,6 +338,6 @@
     return `O ditado parou (${codigo}).`;
   }
 
-  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, rotuloDaResposta, linkObsidian,
+  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
     layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });
