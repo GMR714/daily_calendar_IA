@@ -249,6 +249,14 @@
     return saida;
   }
 
+  // O que a gaveta da sessao oferece (entrega 2): sessao de terminal so se le; trabalhando, a resposta espera ela parar;
+  // com o processo vivo, da para parar (a conversa fica e a resposta seguinte a retoma).
+  function acoesDaSessao(s) {
+    if (!s) return { pode: false, motivo: "", enviar: "", parar: false, fila: 0 };
+    if (s.tipo === "interativa") return { pode: false, motivo: "Aberta num terminal: responda por lá.", enviar: "", parar: false, fila: 0 };
+    return { pode: true, motivo: "", enviar: s.estado === "trabalhando" ? "Mandar quando parar" : "Enviar", parar: Boolean(s.viva), fila: s.na_fila || 0 };
+  }
+
   return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, rotuloDaResposta, linkObsidian,
-    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, ORDEM_COR };
+    layoutTrabalho, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, ORDEM_COR };
 });

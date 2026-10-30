@@ -276,3 +276,10 @@ code { font: 12px Consolas, monospace; background: #f0ebe1; padding: 2px 7px; bo
 .fala a { color: var(--blue); }
 .fala code { user-select: text; }
 .projeto-num { fill: var(--muted); font-size: 11px; font-weight: 600; }
+/* Resposta para a sessao (entrega 2): fica embaixo da conversa, como num chat */
+.sessao-resposta { flex-shrink: 0; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sessao-resposta .acoes { margin-top: 8px; }
+p.sessao-resposta { color: var(--muted); font-size: 13px; }
+/* com a gaveta aberta, o aviso fica no meio da area livre, sem cobrir a caixa de resposta */
+.gaveta.aberta ~ .toast { left: calc((100vw - min(460px, 100vw)) / 2); }
+.gaveta.aberta.larga ~ .toast { left: calc((100vw - min(640px, 100vw)) / 2); }

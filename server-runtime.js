@@ -7,7 +7,7 @@ const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
 const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal } = require("./request-guard");
-const { createCopilotoCommands, validarResposta, validarLeitura } = require("./copiloto-command");
+const { createCopilotoCommands, validarResposta, validarLeitura, validarRespostaSessao } = require("./copiloto-command");
 const { execFile } = require("node:child_process");
 
 // Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
@@ -32,11 +32,28 @@ function abrirPainelFlutuante({ serverUrl }) {
   });
 }
 
-function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, copiloto = createCopilotoCommands() }) {
+function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, copiloto = createCopilotoCommands(), entregaMs = 20000 }) {
   const store = createStore(file);
   const hostsExtras = listaDeHosts(hosts);
   const proposals = new Map();
   let cockpitSource = cockpit;
+  // Respostas que esperam a sessao parar (Mapa de trabalho): o Copiloto entrega a cada `entregaMs` enquanto houver
+  // fila. Uma rodada so comeca depois da anterior; Copiloto fora do ar para o laco, e a proxima resposta liga de novo.
+  let entrega = null;
+  function retomarEntregas() {
+    if (entrega || typeof copiloto.entregarSessoes !== "function") return;
+    entrega = setTimeout(async () => {
+      let pendentes = 0;
+      try {
+        const r = await copiloto.entregarSessoes();
+        pendentes = r.pendentes || 0;
+        if ((r.entregues || []).length && cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});
+      } catch { pendentes = 0; }
+      entrega = null;
+      if (pendentes) retomarEntregas();
+    }, entregaMs);
+    if (entrega.unref) entrega.unref();
+  }
   const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js",
     "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js",
     "/nav-rail.js": "nav-rail.js", "/nav-rail.css": "nav-rail.css", "/agenda-layout.js": "agenda-layout.js" };
@@ -104,6 +121,17 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
         const pedido = validarLeitura({ sessao: conversa[1], sub: url.searchParams.get("sub"), antes: url.searchParams.get("antes") });
         return reply(res, 200, await copiloto.lerSessao(pedido));
       }
+      // Responder e parar retomam ou param uma sessao do Claude: so JSON, que de outro site exige pre-checagem.
+      const acao = /^\/api\/sessoes\/([^/]+)\/(responder|parar)$/.exec(url.pathname);
+      if (req.method === "POST" && acao) {
+        if (!/^application\/json\b/i.test(req.headers["content-type"] || "")) return reply(res, 415, { error: "Envie JSON." });
+        const corpo = await readJson(req);
+        const r = acao[2] === "parar" ? await copiloto.pararSessao(validarLeitura({ sessao: acao[1] }).sessao)
+          : await copiloto.responderSessao(validarRespostaSessao({ sessao: acao[1], texto: corpo.texto }));
+        if (r.estado === "na-fila") retomarEntregas();
+        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // o Mapa mostra a fila e o estado novo
+        return reply(res, 200, { ok: true, ...r });
+      }
       if (req.method === "GET" && publicFiles[url.pathname]) {
         const name = publicFiles[url.pathname];
         const type = { ".html": "text/html", ".css": "text/css", ".js": "application/javascript" }[path.extname(name)];
@@ -158,7 +186,7 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       return reply(res, 404, { error: "Rota inexistente." });
     } catch (error) { reply(res, error.status || 400, { error: error.message || "Nao foi possivel concluir. Nenhum dado foi apagado." }); }
   });
-  return { server, store, propose, apply, file };
+  return { server, store, propose, apply, file, retomarEntregas };
 }
 function reply(res, status, payload, type = "application/json;charset=utf-8") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" });

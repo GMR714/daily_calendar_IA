@@ -21,6 +21,8 @@
   let gaveta = null;
   let alvoMapa = null;  // grafo aberto no Mapa: { tipo: "projeto" | "tarefa", id }
   const conversas = new Map();  // "sessao|subagente" → { falas, antes, carregando, erro }
+  const sessoesVistas = new Map();  // ultima leitura de cada sessao aberta na gaveta
+  const digitadoSessao = new Map();  // resposta que ele esta escrevendo, por sessao
   const $ = id => document.getElementById(id);
 
   function lerPreferencias() {
@@ -218,7 +220,7 @@
   }
   function toast(titulo, linhas = []) {
     const el = $("toast");
-    el.replaceChildren(h("b", {}, titulo), linhas.length ? h("ul", {}, linhas.map(l => h("li", {}, l))) : null);
+    el.replaceChildren(...[h("b", {}, titulo), linhas.length ? h("ul", {}, linhas.map(l => h("li", {}, l))) : null].filter(Boolean));  // null viraria o texto "null"
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.hidden = true; }, linhas.length ? 8000 : 3500);
@@ -617,7 +619,10 @@
   // Sessao ou subsessao: o estado e a conversa, lida do fim para tras. A subsessao (subagente) so se le.
   function gavetaSessao(d, tipo, id, silencioso) {
     const [sessao, sub] = tipo === "sub" ? id.split(":") : [id, null];
-    const s = ((d.trabalho && d.trabalho.sessoes) || {})[sessao];
+    let s = ((d.trabalho && d.trabalho.sessoes) || {})[sessao];
+    // a sessao que termina a vez sai da lista de ativas: a gaveta fica, para ler a resposta e continuar a conversa
+    if (s) sessoesVistas.set(sessao, s);
+    else if (sessoesVistas.has(sessao)) s = { ...sessoesVistas.get(sessao), cor: "sem_sinal", estado: "terminou ou parou (saiu da lista de ativas)", viva: false, na_fila: 0 };
     if (!s) return null;
     const k = `${sessao}|${sub || ""}`;
     if (!silencioso || !conversas.has(k)) carregarConversa(sessao, sub);  // abrir a gaveta traz as falas mais novas
@@ -637,8 +642,69 @@
         sb.total ? `${sb.total} ${sb.total === 1 ? "subsessão" : "subsessões"}${sb.ativas ? ` (${sb.ativas} trabalhando)` : ""}` : ""].filter(Boolean).join(" · ")),
       s.pedido ? h("p", { class: "sessao-pedido", title: s.pedido }, h("b", {}, "Pediram: "), s.pedido) : null,
       h("div", { class: "acoes" }, atualizar, attach ? h("button", { class: "botao pequeno secundario", type: "button", title: `Copia "${attach}", que abre a sessão num terminal`,
-        onclick: () => copiar(attach, "Comando copiado.") }, "Copiar attach") : null),
-      conversa];
+        onclick: () => copiar(attach, "Comando copiado.") }, "Copiar attach") : null, botaoParar(s, V.acoesDaSessao(s))),
+      conversa, painelSessao(s, V.acoesDaSessao(s))];
+  }
+  // Resposta para a sessao, embaixo da conversa (entrega 2): parada ou esperando, ela retoma na hora; trabalhando, a
+  // resposta espera ela terminar o passo. Ctrl+Enter envia. O texto digitado sobrevive a releitura de 30 s.
+  function painelSessao(s, a) {
+    if (!a.pode) return h("p", { class: "dica-resposta sessao-resposta" }, a.motivo);
+    const caixa = h("textarea", { class: "resposta-texto", rows: "2", maxlength: "8000", "aria-label": "Resposta para a sessão",
+      placeholder: a.enviar === "Enviar" ? "Sua resposta: a sessão retoma com ela (Ctrl+Enter envia)" : "Sua resposta: vai quando a sessão terminar o passo atual" });
+    caixa.value = digitadoSessao.get(s.sessao) || "";
+    const enviar = h("button", { class: "botao pequeno", type: "button", onclick: ev => responderSessao(s, caixa, ev.currentTarget) }, a.enviar);
+    caixa.addEventListener("input", () => digitadoSessao.set(s.sessao, caixa.value));
+    caixa.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); enviar.click(); } });
+    return h("div", { class: "resposta-painel sessao-resposta" },
+      a.fila ? h("p", { class: "espera-ciclo" }, `${a.fila} ${a.fila === 1 ? "resposta espera" : "respostas esperam"} a sessão parar`) : null,
+      caixa, h("div", { class: "acoes" }, enviar));
+  }
+  function botaoParar(s, a) {
+    if (!a.parar) return null;
+    return h("button", { class: "botao pequeno perigo", type: "button", title: "claude stop: a conversa fica, e a próxima resposta a retoma", onclick: ev => {
+      const b = ev.currentTarget;
+      if (b.dataset.confirmar) return pararSessao(s, b);
+      b.dataset.confirmar = "1";
+      b.textContent = "Confirmar parada";
+      setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.confirmar; b.textContent = "Parar"; } }, 4000);
+    } }, "Parar");
+  }
+  async function responderSessao(s, caixa, botao) {
+    const texto = caixa.value.trim();
+    if (!texto) { caixa.focus(); return toast("Escreva a resposta."); }
+    const rotulo = botao.textContent;
+    botao.disabled = true;
+    botao.textContent = "Enviando…";
+    try {
+      const r = await fetch(`/api/sessoes/${encodeURIComponent(s.sessao)}/responder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "A sessão não recebeu a resposta.");
+      digitadoSessao.delete(s.sessao);
+      caixa.value = "";
+      toast(corpo.estado === "na-fila" ? "Guardada: vai quando a sessão terminar o passo atual." : "Enviada: a sessão retomou com a sua resposta.");
+      setTimeout(() => { if (gaveta && gaveta.tipo === "sessao" && gaveta.id === s.sessao) carregarConversa(s.sessao, null); }, 5000);
+      carregar(true);
+    } catch (erro) {
+      toast(erro.message);
+    } finally {
+      botao.disabled = false;
+      botao.textContent = rotulo;
+    }
+  }
+  async function pararSessao(s, botao) {
+    botao.disabled = true;
+    botao.textContent = "Parando…";
+    try {
+      const r = await fetch(`/api/sessoes/${encodeURIComponent(s.sessao)}/parar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "Não consegui parar a sessão.");
+      toast(corpo.estado === "ja-parada" ? "A sessão já estava parada." : "Sessão parada. A conversa fica, e responder a retoma.");
+      carregar(true);
+    } catch (erro) {
+      toast(erro.message);
+      botao.disabled = false;
+      botao.textContent = "Parar";
+    }
   }
   function conteudoConversa(sessao, sub) {
     const c = conversas.get(`${sessao}|${sub || ""}`) || { falas: [], carregando: true };
