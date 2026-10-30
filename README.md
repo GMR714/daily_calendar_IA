@@ -113,6 +113,8 @@ O item **Cockpit** do menu lateral abre `/cockpit`, uma tela com o que os agente
 
 Na gaveta de uma sessao em segundo plano, a caixa embaixo da conversa responde a ela (`Ctrl+Enter` envia). Se a sessao esta parada ou esperando voce, **Enviar** a retoma na hora, no mesmo chat (`claude --bg --resume`, na pasta da sessao). Se esta trabalhando, o botao vira **Mandar quando parar**: a resposta espera na fila do Copiloto (`cli.py sessao responder`), e a agenda tenta entregar a cada 20 s enquanto houver fila; o ciclo do Copiloto tambem entrega, como reserva. Nada interrompe a sessao, a nao ser **Parar**, que pede um segundo clique e roda `claude stop`; a conversa fica guardada, e a proxima resposta a retoma. Sessao aberta num terminal nao recebe resposta pela tela: a gaveta pede para responder por la.
 
+**Ouvir**, na gaveta de qualquer sessao, pede ao Copiloto um resumo curto (`cli.py sessao resumo`): o que foi pedido, onde a sessao parou e o que espera de voce, sem codigo, caminho ou id. O alvo e cerca de 25 s de fala, e o teto e 40 s. O texto fica escrito acima da conversa, e a voz pt-BR do navegador o le, frase por frase; **Parar de ouvir** interrompe. O primeiro resumo leva de 8 a 14 s; enquanto a conversa nao muda, o Copiloto devolve o mesmo em cerca de 1 s. **Ditar**, ao lado de **Enviar**, usa o reconhecimento de voz do navegador em portugues: o texto cai na caixa para voce revisar, e nada e enviado sem o clique. Na primeira vez, o navegador pede para usar o microfone. Sem suporte (fora do Chrome e do Edge), no lugar do botao aparece a dica.
+
 Na fila **Voce**, **Revisar** abre o rascunho inteiro, com **Aprovar e enviar**, **Pedir ajuste** e **Descartar**. **Responder** manda sua resposta a uma tarefa, e a gaveta traz o link da nota no Obsidian. A resposta vai para a caixa de entrada do Copiloto (`cli.py entrada gravar`), e o proximo ciclo trata pelo mesmo caminho do `ok R-NN` da DM. Ate la, o item mostra "espera o ciclo". **Rodar agora**, no topo, pede um ciclo na hora; ele espera a vez e nunca derruba o que esta rodando. A tela nao envia nada: quem envia e a orquestradora.
 
 O servidor roda o Copiloto quando a tela pede e guarda a leitura por 45 s; a tela atualiza sozinha a cada 30 s. Sem o Copiloto, so a tela do cockpit mostra o erro, e a agenda continua igual. O caminho padrao e o abaixo; mude no `.env` se o Copiloto estiver em outra pasta.
@@ -129,6 +131,7 @@ COCKPIT_PYTHON=py
 - Arquivos corrompidos causam erro explicito; nao sao substituidos por uma agenda vazia.
 - A sincronizacao compara a versao anterior, a edicao local e a versao do servidor. Alteracoes independentes sao combinadas; conflitos ficam visiveis, sem sobrescrever em silencio.
 - O servidor so atende quem chega por `localhost`, `127.0.0.1` ou `[::1]`. Um site que aponte o proprio nome para este computador (DNS rebinding) recebe 403; para abrir a agenda por outro nome, inclua-o em `AGENDA_HOSTS`. Pedidos que alteram dados precisam vir da propria agenda, e as acoes que fazem este computador agir (abrir o painel, falar com o Copiloto) so valem vindas dele. A conversa das sessoes (`/api/sessoes/*`) tambem: ela pode ter dado sensivel. A saida das ferramentas nao aparece na tela. Responder e parar so valem para sessoes que aparecem no `claude agents`, e o texto da resposta vai como argumento do `claude`, sem passar por um shell, com ate 8000 caracteres.
+- O resumo do **Ouvir** e feito por um `claude -p` haiku da sua assinatura, sem ferramentas e sem gravar sessao, que le so as falas, nunca a saida das ferramentas. No **Ditar**, o navegador manda o audio ao servico de voz dele (Google no Chrome, Microsoft no Edge); a agenda so recebe o texto.
 - O navegador guarda rascunhos e alteracoes pendentes durante falhas de conexao. Uma copia local anterior pode ser exportada em Ajustes.
 - Para restaurar manualmente um backup do servidor, pare o servidor, preserve o arquivo atual e substitua `agenda-data.json` por uma copia valida da pasta de backups. Reinicie e use a versao do servidor no navegador se houver conflito.
 - `.env`, dados, backups, logs e cursor do Telegram ficam fora do Git.
@@ -167,7 +170,7 @@ Teste visual opcional: instale Playwright em um ambiente de desenvolvimento ou a
 - `app.js`, `product-ui.js`: calendario, editores, feedback e sincronizacao.
 - `styles.css`, `product.css`: estilos base e interface reorganizada.
 - `cockpit-source.js`: leitura do Copiloto para o cockpit, com cache e erro legivel.
-- `cockpit-view.js`: regras puras da tela do cockpit (grupos, filtros, contexto, o que mudou, texto sem markdown, mapa de trabalho, grafo, conversa e o que da para fazer com cada sessao).
+- `cockpit-view.js`: regras puras da tela do cockpit (grupos, filtros, contexto, o que mudou, texto sem markdown, mapa de trabalho, grafo, conversa, o que da para fazer com cada sessao, voz do Ouvir e ditado).
 - `cockpit.html`, `cockpit.js`, `cockpit.css`: tela Cockpit da IA.
 - `nav-rail.js`, `nav-rail.css`: menu lateral unico da agenda e do cockpit (Agenda, Checklist, Cockpit, Cantinho, Planos, Ajustes).
 - `agenda-layout.js`: escala do calendario pela altura da tela, para o dia caber sem rolar.

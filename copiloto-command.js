@@ -44,6 +44,9 @@ function erroDoComando(error) {
   if (/invalid choice: '(entrada|ciclo)'/i.test(texto)) {
     return "O Copiloto instalado ainda nao tem a caixa de entrada. Mescle o PR dela no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
   }
+  if (/invalid choice: 'resumo'/i.test(texto)) {
+    return "O Copiloto instalado ainda nao faz o resumo para ouvir. Mescle o PR dele no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
+  }
   if (/invalid choice: 'sessao'/i.test(texto)) {
     return "O Copiloto instalado ainda nao le as sessoes do Mapa de trabalho. Mescle o PR dele no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
   }
@@ -80,6 +83,8 @@ function createCopilotoCommands({ run = runCli } = {}) {
     responderSessao: ({ sessao, texto }) => run(["sessao", "responder"], { entrada: { sessao, texto, origem: "tela" }, timeoutMs: 120000 }),
     entregarSessoes: () => run(["sessao", "entregar"], { timeoutMs: 300000 }),
     pararSessao: sessao => run(["sessao", "parar", sessao], { timeoutMs: 90000 }),
+    // o resumo roda um claude -p (8 a 14 s em 29/10); guardado, volta em ~1 s
+    resumirSessao: sessao => run(["sessao", "resumo", sessao], { timeoutMs: 90000 }),
   };
 }
 

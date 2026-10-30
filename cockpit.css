@@ -283,3 +283,11 @@ p.sessao-resposta { color: var(--muted); font-size: 13px; }
 /* com a gaveta aberta, o aviso fica no meio da area livre, sem cobrir a caixa de resposta */
 .gaveta.aberta ~ .toast { left: calc((100vw - min(460px, 100vw)) / 2); }
 .gaveta.aberta.larga ~ .toast { left: calc((100vw - min(640px, 100vw)) / 2); }
+/* Ouvir e Ditar (entrega 3): o resumo fica escrito acima da conversa; o Ditar pisca enquanto o microfone ouve */
+.sessao-resumo { flex-shrink: 0; margin: 8px 0 0; padding: 8px 10px; border-left: 3px solid var(--bem); border-radius: 6px; background: var(--surface-2); font-size: 13px; line-height: 1.45; }
+.sessao-resumo[hidden] { display: none; }
+.sessao-resumo b { color: var(--muted); font-weight: 600; }
+.sessao-resumo.erro { border-left-color: var(--problema); color: var(--red); }
+.botao.gravando::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--problema); animation: gravando 1s ease-in-out infinite; }
+@keyframes gravando { 50% { opacity: .25; } }
+.dica-ditado { align-self: center; color: var(--muted); font-size: 12px; }

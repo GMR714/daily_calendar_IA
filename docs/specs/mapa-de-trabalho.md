@@ -80,12 +80,14 @@ Três entregas. Cada uma tem um PR no copiloto (dados e comandos) e um na agenda
    - O Chrome manda o áudio ao serviço de voz do Google, como ele aceitou.
    - Sem suporte no navegador, o botão some e a dica diz que o ditado pede Chrome ou Edge.
 2. **Copiloto:** `cli.py sessao resumo <sessão>` faz um resumo para ouvir.
-   - Usa `claude -p --model haiku --tools ""`, sem gravar sessão e com teto de gasto.
+   - Usa `claude -p --model haiku --tools "" --safe-mode`, sem CLAUDE.md, hooks nem MCP, sem gravar sessão e com teto de gasto. A conversa vai pela entrada padrão e leva só as falas.
    - O resumo diz o que pediram, onde parou e o que espera de você. Não traz código, caminho de arquivo nem id.
    - Alvo de 60 palavras (cerca de 25 s). Acima de 90 palavras (cerca de 40 s), o texto é cortado na última frase completa.
    - Guarda o resultado enquanto a conversa não muda.
    - Se o `claude -p` falhar (limite de uso, por exemplo), monta um resumo mínimo sem IA: o nome, o estado e a primeira frase da última fala.
 3. **Agenda:** botão "Ouvir" na gaveta da sessão. Lê o resumo com a voz pt-BR do navegador e mostra o texto. "Parar de ouvir" interrompe.
+   - Uma fala por frase: a voz do Google no Chrome para no meio de falas longas.
+   - A voz preferida é a natural do Edge, depois a do Google, depois qualquer pt-BR.
 
 ## Segurança
 
@@ -110,8 +112,8 @@ Três entregas. Cada uma tem um PR no copiloto (dados e comandos) e um na agenda
 - [x] A conversa de uma sessão de 242 MB abre em poucos segundos, das falas mais novas para trás. Medido em 29/10: de 0,6 a 1,3 s, e as anteriores em 0,65 s.
 - [x] Responder a uma sessão esperando você faz ela retomar com o texto, no mesmo chat e sem cópia. Responder a uma sessão trabalhando não a interrompe: a resposta vai quando ela parar. Conferido em 29/10 com sessões de teste. Pela tela, a sessão retomou com o mesmo id em cerca de 6 s e respondeu "quarta" e depois "quinta". Pelo CLI, a resposta a uma sessão trabalhando ficou na fila e foi entregue quando ela parou.
 - [x] Sessão aberta num terminal não aceita resposta pela tela, e a gaveta explica por quê. Conferido em 29/10 com dados falsos: a gaveta mostra "Aberta num terminal: responda por lá.", sem caixa de resposta e sem Parar.
-- [ ] O ditado põe o texto na caixa, e nada é enviado sem o clique dele.
-- [ ] O Ouvir fala no máximo 40 s, sem código. O normal fica em cerca de 25 s.
+- [ ] O ditado põe o texto na caixa, e nada é enviado sem o clique dele. Conferido em 29/10 sem microfone, no Chrome headless: o clique em Ditar mostra o aviso do microfone, a caixa fica vazia e a página não envia nada. Falta ele testar com o microfone.
+- [x] O Ouvir fala no máximo 40 s, sem código. O normal fica em cerca de 25 s. Medido em 29/10 no Chrome, com a voz do Google pt-BR: 22,9 s e 27,3 s de fala. Nas três sessões reais resumidas, de 46 a 61 palavras, sem código, caminho nem id. O primeiro resumo levou de 8 a 14 s; o guardado, cerca de 1,5 s.
 - [x] Pedido de outro site ou de outra máquina é barrado antes de chegar ao Copiloto. Nos testes de `tests/sessoes-api.test.cjs`: Origin de outro site dá 403, POST sem JSON dá 415 e `/api/sessoes/*` só atende este computador, até no GET.
 - [x] Em 1536×730 o cockpit cabe sem a página rolar. Também em 1024×700. A largura do desenho acompanha a da tela.
 

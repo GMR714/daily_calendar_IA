@@ -137,3 +137,38 @@ test("sessoes: o cli.py recebe sessao responder (texto pela entrada padrao), ent
     { argumentos: ["sessao", "entregar"], entrada: undefined },
     { argumentos: ["sessao", "parar", SID], entrada: undefined }]);
 });
+
+// ------------------------------------------------------------------ entrega 3: resumo para ouvir
+test("sessoes: o Ouvir pede ao Copiloto o resumo da sessao, so deste computador", async t => {
+  const chamadas = [];
+  const base = await abrir(t, { resumirSessao: async sessao => {
+    chamadas.push(sessao);
+    return { sessao: SID, texto: "A revisão terminou e espera você.", palavras: 6, segundos: 3, fonte: "ia", guardado: false };
+  } });
+  const r = await get(base, `/api/sessoes/${SID.slice(0, 8)}/resumo`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.texto, "A revisão terminou e espera você.");
+  assert.equal((await get(base, "/api/sessoes/xyz/resumo")).status, 400);
+  assert.deepEqual(chamadas, [SID.slice(0, 8)]);
+  assert.equal(rotaSoLocal(`/api/sessoes/${SID}/resumo`), true);
+});
+
+test("sessoes: falha do resumo vira 503 com a mensagem do Copiloto", async t => {
+  const base = await abrir(t, { resumirSessao: async () => { throw Object.assign(new Error("O Copiloto demorou demais para responder."), { status: 503 }); } });
+  const r = await get(base, `/api/sessoes/${SID}/resumo`);
+  assert.equal(r.status, 503);
+  assert.match(r.body.error, /demorou/);
+});
+
+test("sessoes: o cli.py recebe sessao resumo, com tempo para o claude -p", async () => {
+  const chamadas = [];
+  const comandos = createCopilotoCommands({ run: async (argumentos, opcoes = {}) => { chamadas.push({ argumentos, timeoutMs: opcoes.timeoutMs }); return {}; } });
+  await comandos.resumirSessao(SID);
+  assert.deepEqual(chamadas, [{ argumentos: ["sessao", "resumo", SID], timeoutMs: 90000 }]);
+});
+
+test("sessoes: Copiloto sem o resumo explica o que falta", () => {
+  const texto = erroDoComando({ stderr: "copiloto sessao: error: argument acao: invalid choice: 'resumo' (choose from 'ler', 'responder', 'entregar', 'parar')" });
+  assert.match(texto, /resumo/);
+  assert.match(texto, /git pull/);
+});

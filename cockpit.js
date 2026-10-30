@@ -23,6 +23,9 @@
   const conversas = new Map();  // "sessao|subagente" → { falas, antes, carregando, erro }
   const sessoesVistas = new Map();  // ultima leitura de cada sessao aberta na gaveta
   const digitadoSessao = new Map();  // resposta que ele esta escrevendo, por sessao
+  const resumos = new Map();  // sessao → { texto, fonte, aviso, carregando, erro } do Ouvir
+  let falando = null;  // sessao cujo resumo a voz esta lendo
+  let ditado = null;  // { sessao, rec } enquanto o microfone ouve
   const $ = id => document.getElementById(id);
 
   function lerPreferencias() {
@@ -257,7 +260,7 @@
     marcarRodar();
     // redesenhar a gaveta no meio de uma resposta apagaria o que ele esta digitando
     const digitando = document.activeElement && document.activeElement.tagName === "TEXTAREA" && $("gaveta").contains(document.activeElement);
-    if (gaveta && !digitando) abrirGaveta(gaveta.tipo, gaveta.id, true);
+    if (gaveta && !digitando && !ditado) abrirGaveta(gaveta.tipo, gaveta.id, true);  // nem no meio de um ditado
   }
 
   function renderKpis(d) {
@@ -551,6 +554,7 @@
   function abrirGaveta(tipo, id, silencioso = false) {
     const d = resposta && resposta.dados;
     if (!d) return;
+    if (!silencioso && gaveta && (gaveta.tipo !== tipo || gaveta.id !== id)) { pararDitado(); pararDeOuvir(); }
     let corpo = null;
     if (tipo === "agente") {
       const a = d.agentes.find(x => x.id === id);
@@ -641,9 +645,112 @@
       h("p", { class: "sessao-meta", title: s.pasta }, [s.frente || s.pasta, s.atualizado ? `atualizada às ${s.atualizado}` : "",
         sb.total ? `${sb.total} ${sb.total === 1 ? "subsessão" : "subsessões"}${sb.ativas ? ` (${sb.ativas} trabalhando)` : ""}` : ""].filter(Boolean).join(" · ")),
       s.pedido ? h("p", { class: "sessao-pedido", title: s.pedido }, h("b", {}, "Pediram: "), s.pedido) : null,
-      h("div", { class: "acoes" }, atualizar, attach ? h("button", { class: "botao pequeno secundario", type: "button", title: `Copia "${attach}", que abre a sessão num terminal`,
+      h("div", { class: "acoes" }, atualizar, botaoOuvir(s.sessao), attach ? h("button", { class: "botao pequeno secundario", type: "button", title: `Copia "${attach}", que abre a sessão num terminal`,
         onclick: () => copiar(attach, "Comando copiado.") }, "Copiar attach") : null, botaoParar(s, V.acoesDaSessao(s))),
-      conversa, painelSessao(s, V.acoesDaSessao(s))];
+      caixaResumo(s.sessao), conversa, painelSessao(s, V.acoesDaSessao(s))];
+  }
+  // Ouvir (entrega 3): resumo de ate ~40 s, sem codigo, lido pela voz pt-BR do navegador; o texto fica escrito na gaveta.
+  // O botao e o quadro mudam no lugar, sem redesenhar a gaveta, para nao tirar o foco de quem esta digitando.
+  function botaoOuvir(sessao) {
+    const r = resumos.get(sessao) || {};
+    return h("button", { class: "botao pequeno secundario", type: "button", "data-ouvir": "", disabled: Boolean(r.carregando),
+      title: "Um resumo de até 40 s, sem código, na voz do navegador", onclick: () => ouvir(sessao) },
+      falando === sessao ? "Parar de ouvir" : r.carregando ? "Resumindo…" : "Ouvir");
+  }
+  function caixaResumo(sessao) {
+    const r = resumos.get(sessao) || {};
+    return h("p", { class: `sessao-resumo${r.erro ? " erro" : ""}`, "data-resumo": "", hidden: !r.texto && !r.erro, title: r.aviso || null, "aria-live": "polite" },
+      r.erro || [h("b", {}, r.fonte === "sem-ia" ? "Resumo sem IA: " : "Resumo: "), r.texto]);
+  }
+  function atualizarOuvir(sessao) {
+    if (!gaveta || gaveta.tipo !== "sessao" || gaveta.id !== sessao) return;
+    const corpo = $("gavetaCorpo");
+    const botao = corpo.querySelector("[data-ouvir]");
+    if (botao) botao.replaceWith(botaoOuvir(sessao));
+    const quadro = corpo.querySelector("[data-resumo]");
+    if (quadro) quadro.replaceWith(caixaResumo(sessao));
+  }
+  async function ouvir(sessao) {
+    if (falando === sessao) return pararDeOuvir();
+    pararDeOuvir();
+    resumos.set(sessao, { ...(resumos.get(sessao) || {}), carregando: true, erro: "" });
+    atualizarOuvir(sessao);
+    try {
+      const r = await fetch(`/api/sessoes/${encodeURIComponent(sessao)}/resumo`);
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "Não consegui resumir a sessão.");
+      resumos.set(sessao, { texto: corpo.texto, fonte: corpo.fonte, aviso: corpo.aviso || "" });
+      if (gaveta && gaveta.tipo === "sessao" && gaveta.id === sessao) falar(sessao, corpo.texto);  // fechou a gaveta: so guarda
+    } catch (erro) {
+      resumos.set(sessao, { erro: erro.message });
+    }
+    atualizarOuvir(sessao);
+  }
+  // Uma fala por frase: a voz do Google no Chrome para no meio de falas longas.
+  function falar(sessao, texto) {
+    if (!("speechSynthesis" in window)) return toast("Este navegador não fala: o resumo está escrito na gaveta.");
+    const frases = V.frasesParaFalar(texto);
+    if (!frases.length) return;
+    const voz = V.escolherVoz(speechSynthesis.getVoices());
+    speechSynthesis.cancel();
+    falando = sessao;
+    frases.forEach((frase, i) => {
+      const fala = new SpeechSynthesisUtterance(frase);
+      fala.lang = "pt-BR";
+      if (voz) fala.voice = voz;
+      if (i === frases.length - 1) fala.onend = fala.onerror = () => { if (falando === sessao) { falando = null; atualizarOuvir(sessao); } };
+      speechSynthesis.speak(fala);
+    });
+  }
+  function pararDeOuvir() {
+    if (!falando) return;
+    const sessao = falando;
+    falando = null;
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    atualizarOuvir(sessao);
+  }
+  // Ditar (entrega 3): o reconhecimento de voz do navegador, em pt-BR, escreve na caixa; ele revisa e clica em Enviar.
+  function botaoDitar(sessao, caixa) {
+    if (!V.suporteDitado(window)) return h("span", { class: "dica-ditado" }, "Ditado: use o Chrome ou o Edge.");
+    const ativo = Boolean(ditado && ditado.sessao === sessao);
+    return h("button", { class: `botao pequeno secundario${ativo ? " gravando" : ""}`, type: "button", "data-ditar": "",
+      title: "Ditado do navegador, em português: o áudio vai para o serviço de voz dele. Nada é enviado sem você clicar.",
+      onclick: () => alternarDitado(sessao, caixa) }, ativo ? "Parar ditado" : "Ditar");
+  }
+  function alternarDitado(sessao, caixa) {
+    const era = ditado && ditado.sessao;
+    pararDitado();
+    if (era === sessao) return;
+    const Reconhecer = V.suporteDitado(window);
+    const rec = new Reconhecer();
+    rec.lang = "pt-BR";
+    rec.interimResults = true;
+    rec.continuous = true;
+    const base = caixa.value;
+    rec.onresult = ev => {
+      caixa.value = V.juntarDitado(base, Array.from(ev.results, r => r[0].transcript));
+      digitadoSessao.set(sessao, caixa.value);
+    };
+    rec.onerror = ev => { const aviso = V.erroDoDitado(ev.error); if (aviso) toast(aviso); };
+    rec.onend = () => { if (ditado && ditado.rec === rec) { ditado = null; marcarDitado(); } };
+    ditado = { sessao, rec };
+    try { rec.start(); } catch (erro) { ditado = null; toast(V.erroDoDitado(erro.name || "start")); }
+    caixa.focus();
+    marcarDitado();
+  }
+  function pararDitado() {
+    if (!ditado) return;
+    const { rec } = ditado;
+    ditado = null;
+    try { rec.stop(); } catch { /* ja tinha parado */ }  // o que ja foi dito ainda chega na caixa
+    marcarDitado();
+  }
+  function marcarDitado() {
+    const botao = $("gavetaCorpo").querySelector("[data-ditar]");
+    if (!botao) return;
+    const ativo = Boolean(ditado && gaveta && gaveta.tipo === "sessao" && ditado.sessao === gaveta.id);
+    botao.textContent = ativo ? "Parar ditado" : "Ditar";
+    botao.classList.toggle("gravando", ativo);
   }
   // Resposta para a sessao, embaixo da conversa (entrega 2): parada ou esperando, ela retoma na hora; trabalhando, a
   // resposta espera ela terminar o passo. Ctrl+Enter envia. O texto digitado sobrevive a releitura de 30 s.
@@ -657,7 +764,7 @@
     caixa.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); enviar.click(); } });
     return h("div", { class: "resposta-painel sessao-resposta" },
       a.fila ? h("p", { class: "espera-ciclo" }, `${a.fila} ${a.fila === 1 ? "resposta espera" : "respostas esperam"} a sessão parar`) : null,
-      caixa, h("div", { class: "acoes" }, enviar));
+      caixa, h("div", { class: "acoes" }, enviar, botaoDitar(s.sessao, caixa)));
   }
   function botaoParar(s, a) {
     if (!a.parar) return null;
@@ -670,6 +777,7 @@
     } }, "Parar");
   }
   async function responderSessao(s, caixa, botao) {
+    pararDitado();
     const texto = caixa.value.trim();
     if (!texto) { caixa.focus(); return toast("Escreva a resposta."); }
     const rotulo = botao.textContent;
@@ -753,6 +861,8 @@
     el.scrollTop = manterPonto ? el.scrollHeight - doFim : el.scrollHeight;
   }
   function fecharGaveta() {
+    pararDitado();
+    pararDeOuvir();
     gaveta = null;
     $("gaveta").classList.remove("aberta");
     $("gaveta").setAttribute("aria-hidden", "true");
@@ -761,6 +871,7 @@
 
   // ------------------------------------------------------------------ eventos
   NavRail.montar($("rail"), { ativo: "cockpit" });
+  if ("speechSynthesis" in window) speechSynthesis.getVoices();  // o Chrome so carrega a lista de vozes depois da primeira chamada
   document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => { ui.aba = b.dataset.aba; salvarPreferencias(); renderizar(); }));
   document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
   $("busca").addEventListener("input", debounce(e => { ui.busca = e.target.value; renderizar(); }, 120));
