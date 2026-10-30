@@ -211,6 +211,23 @@
       marcarRodar();
     }
   }
+  async function abrirMestra() {
+    const botao = $("abrirMestra");
+    botao.disabled = true;
+    botao.textContent = "Abrindo…";
+    try {
+      const r = await fetch("/api/copiloto/mestra", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok || corpo.ok === false) throw new Error(corpo.error || corpo.erro || "Não consegui abrir a Mestra.");
+      toast(corpo.janela ? (corpo.acao === "nova" ? "A Mestra nasceu: a janela abre em instantes." : "Janela da Mestra aberta.")
+        : `A Mestra está no claude agents: claude attach ${corpo.curto || "Mestra"}`);
+    } catch (erro) {
+      toast(erro.message);
+    } finally {
+      botao.disabled = false;
+      botao.textContent = "Mestra";
+    }
+  }
   function marcarRodar() {
     const n = ((resposta && resposta.dados && resposta.dados.voce && resposta.dados.voce.itens) || []).filter(i => i.resposta).length;
     $("rodarAgora").textContent = n ? `Rodar agora · ${n}` : "Rodar agora";
@@ -1077,6 +1094,7 @@
   $("busca").addEventListener("input", debounce(e => { ui.busca = e.target.value; renderizar(); }, 120));
   $("atualizar").addEventListener("click", () => carregar(true));
   $("rodarAgora").addEventListener("click", rodarAgora);
+  $("abrirMestra").addEventListener("click", abrirMestra);
   $("fecharGaveta").addEventListener("click", fecharGaveta);
   $("veu").addEventListener("click", fecharGaveta);
   $("voltarMapa").addEventListener("click", voltarAoMapa);

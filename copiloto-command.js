@@ -51,6 +51,9 @@ function erroDoComando(error) {
   if (/invalid choice: '(entrada|ciclo)'/i.test(texto)) {
     return "O Copiloto instalado ainda nao tem a caixa de entrada. Mescle o PR dela no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
   }
+  if (/invalid choice: 'mestra'/i.test(texto)) {
+    return "O Copiloto instalado ainda nao tem a Mestra. Mescle o PR dela no copiloto e rode git pull em C:\Dev\Dev Seazone\copiloto.";
+  }
   if (/invalid choice: 'resumo'/i.test(texto)) {
     return "O Copiloto instalado ainda nao faz o resumo para ouvir. Mescle o PR dele no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
   }
@@ -88,6 +91,8 @@ function createCopilotoCommands({ run = runCli } = {}) {
   return {
     responder: resposta => run(["entrada", "gravar"], { entrada: { ...resposta, origem: "tela" } }),
     rodar: () => run(["ciclo", "agora"]),
+    // a Mestra (ADR 022 do copiloto): garante a sessao e abre a janela do chat; nascer espera o claude --bg e o agents
+    abrirMestra: () => run(["mestra", "--abrir"], { timeoutMs: 120000 }),
     lerSessao: ({ sessao, sub, antes }) => run(["sessao", "ler", sessao, ...(sub ? ["--sub", sub] : []), ...(antes !== null && antes !== undefined ? ["--antes", String(antes)] : [])]),
     // parar e retomar uma sessao leva ate ~45 s (espera o processo sair); a fila pode ter mais de uma sessao
     responderSessao: ({ sessao, texto }) => run(["sessao", "responder"], { entrada: { sessao, texto, origem: "tela" }, timeoutMs: 120000 }),
