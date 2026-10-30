@@ -32,7 +32,7 @@ function abrirPainelFlutuante({ serverUrl }) {
   });
 }
 
-function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, copiloto = createCopilotoCommands(), entregaMs = 20000 }) {
+function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, copiloto = createCopilotoCommands(), entregaMs = 20000, cicloMs = 60000 }) {
   const store = createStore(file);
   const hostsExtras = listaDeHosts(hosts);
   const proposals = new Map();
@@ -53,6 +53,21 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       if (pendentes) retomarEntregas();
     }, entregaMs);
     if (entrega.unref) entrega.unref();
+  }
+  // Resposta pela tela (30/10): o Copiloto roda um ciclo `cicloMs` depois da ultima resposta, sem esperar a rodada de
+  // 30 min, que so roda nos dias uteis. Respostas seguidas viram um pedido so. Com um "rodar agora" ainda vivo
+  // ("ja-pedido"), aquele ciclo pode ja ter lido a fila: tenta de novo ate o pedido entrar. Pausado ou com erro, para.
+  let ciclo = null;
+  function pedirCiclo() {
+    if (typeof copiloto.rodar !== "function") return;
+    clearTimeout(ciclo);
+    ciclo = setTimeout(async () => {
+      ciclo = null;
+      let estado = "";
+      try { estado = ((await copiloto.rodar()) || {}).estado; } catch { return; }
+      if (estado === "ja-pedido" && !ciclo) pedirCiclo();
+    }, cicloMs);
+    if (ciclo.unref) ciclo.unref();
   }
   const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js",
     "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js",
@@ -108,7 +123,8 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       if (req.method === "POST" && url.pathname === "/api/copiloto/responder") {
         const resposta = validarResposta(await readJson(req));
         const entrada = await copiloto.responder(resposta);
-        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // a fila passa a mostrar "espera o ciclo"
+        pedirCiclo();
+        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // a fila passa a mostrar "ciclo em ~1 min"
         return reply(res, 200, { ok: true, entrada });
       }
       if (req.method === "POST" && url.pathname === "/api/copiloto/excluir-tarefa") {
