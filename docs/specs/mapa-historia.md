@@ -6,6 +6,9 @@ data: 2026-10-30
 
 # Mapa: uma bola por tarefa e a história de cada uma
 
+> Em 02/11, as bolas e os cartões da esquerda para a direita deram lugar à árvore de cima para baixo
+> ([mapa-arvore](mapa-arvore.md)). A história continua: a mesma leitura da nota, agora numa linha do tempo embaixo da tarefa.
+
 ## Pedido original
 
 > "achei que o mapa ainda esta muito confuso ele não deveria ter o layout estatico assim e cada bola ali deveria ser uma
