@@ -18,6 +18,7 @@
   let toastTimer = null;
   let carregandoAgora = false;
   let gaveta = null;
+  let alvoMapa = null;  // o que o Mapa mostra no lugar das bolas: { tipo: "arvore", alvo: "tarefa" | "projeto" | "pasta" | "semtarefa", id }
   const conversas = new Map();  // "sessao|subagente" → { falas, antes, carregando, erro }
   const sessoesVistas = new Map();  // ultima leitura de cada sessao aberta na gaveta
   const digitadoSessao = new Map();  // resposta que ele esta escrevendo, por sessao
@@ -27,8 +28,7 @@
   const $ = id => document.getElementById(id);
 
   function lerPreferencias() {
-    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes", rotinas: "fechada",
-      mapa: { projeto: null, tarefa: null, sessao: null } };  // o que esta aberto na arvore do Mapa (02/11)
+    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes", rotinas: "fechada" };
     let lido = { ...padrao };
     try { lido = { ...padrao, ...JSON.parse(localStorage.getItem("cockpit:ui") || "{}") }; } catch { /* sem armazenamento */ }
     const aba = location.hash.slice(1);  // /cockpit#mapa abre direto no mapa
@@ -50,6 +50,12 @@
       else el.setAttribute(k, v === true ? "" : v);
     }
     for (const f of filhos.flat(Infinity)) if (f !== null && f !== undefined && f !== false && f !== "") el.append(f instanceof Node ? f : String(f));
+    return el;
+  }
+  function s(tag, attrs, ...filhos) {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) el.setAttribute(k, v);
+    for (const f of filhos.flat(Infinity)) if (f !== null && f !== undefined) el.append(f instanceof Node ? f : document.createTextNode(String(f)));
     return el;
   }
   const bolinha = cor => h("span", { class: `bolinha ${cor}`, title: ROTULO[cor] });
@@ -176,7 +182,7 @@
       const corpo = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(corpo.error || "Não consegui excluir a tarefa.");
       excluidas.add(id);
-      historias.delete(id);  // a historia aberta passa a mostrar a tarefa fechada
+      arvores.delete(`tarefa:${id}`);  // a arvore aberta passa a mostrar a tarefa fechada
       resposta.dados = V.semExcluidas(resposta.dados, excluidas).dados;
       if (gaveta && (gaveta.tipo === "voce" || gaveta.tipo === "tarefa") && gaveta.id === id) fecharGaveta();
       toast(V.avisoDaExclusao(vivas));
@@ -430,278 +436,269 @@
         pAgora !== null ? h("i", { class: "agora", style: `left:${pAgora}%` }) : null));
   }
 
-  // Mapa em arvore (docs/specs/mapa-arvore.md): de cima para baixo, projeto → tarefas → historia (pedido → passos →
-  // agora ⇢ meta) e sessoes → subsessoes. O clique abre o ramo embaixo da linha; fica aberto um projeto, uma tarefa e
-  // uma sessao por vez (ui.mapa). Abrir e fechar so trocam a classe, e o ramo cresce e encolhe com movimento; a
-  // releitura de 30 s redesenha tudo ja no estado de agora, sem movimento, e guarda a rolagem e o foco.
+  // Mapa de bolas (docs/specs/mapa-historia.md): cada bola e uma tarefa, com o titulo dentro, e as do mesmo projeto ficam
+  // juntas, com o nome dele em cima. A bola cresce com os passos e quando precisa dele; a que espera por ele pulsa.
+  // O clique na bola abre a historia da tarefa (na pasta de sessoes sem tarefa, o grafo delas); no nome do projeto, o
+  // grafo de sessoes dele. "← Mapa" (ou Esc) volta. A largura do desenho acompanha a da tela (altura fixa de 660): em
+  // 1536×730 sobra largura. O SVG continua com 100% do quadro, entao trocar o viewBox nao muda o tamanho dele.
+  let animarBolhas = true;  // as bolas surgem ao abrir o Mapa; a releitura de 30 s redesenha sem animar
+  let tamanhoDoMapa = "";  // o ResizeObserver so redesenha quando o quadro muda de tamanho (senao corta a animacao)
   const clicavel = (el, acao) => {
     el.addEventListener("click", acao);
     el.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === e.currentTarget) acao(); });
     return el;
   };
   const dataCurta = iso => (/^\d{4}-\d{2}-\d{2}/.test(String(iso || "")) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : String(iso || ""));
-  const historias = new Map();  // tarefa → { dados, carregando, erro, em }
-  const passosVistos = new Map();  // tarefa → quantos passos aparecem; "+N anteriores" abre mais acima
-  const PASSOS_INICIAIS = 3, PASSOS_A_MAIS = 6, PONTOS = 16;  // 3 passos: pedido, passos, agora e meta cabem em 1536x730
-  let trazerQuandoChegar = null;  // a tarefa que abriu antes de a historia chegar: vem para a vista quando ela chega
-  let abertosPelaBusca = new Set();  // projetos que a busca abriu, menos os que ele fechou durante a mesma busca
-  const fechadosNaBusca = { busca: "", nomes: new Set() };
-  const mapaAberto = () => ({ projeto: null, tarefa: null, sessao: null, ...(ui.mapa || {}) });
-  const tarefaDoMapa = (d, id) => ((d && d.trabalho && d.trabalho.projetos) || []).flatMap(p => p.tarefas || []).find(x => x.id === id) || null;
-  const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
-
+  function larguraDoMapa(svg) {
+    const r = svg.getBoundingClientRect();
+    const W = r.width > 0 && r.height > 0 ? Math.round(Math.min(1800, Math.max(1100, (660 * r.width) / r.height))) : 1100;
+    svg.setAttribute("viewBox", `0 0 ${W} 660`);
+    return W;
+  }
   function renderMapa(d) {
-    const caixa = $("arvore");
-    const rolagem = caixa.scrollTop;
-    const focado = document.activeElement && caixa.contains(document.activeElement) && document.activeElement.closest("[data-chave]");
-    const foco = focado ? focado.dataset.chave : null;
+    const svg = $("mapa");
+    svg.replaceChildren();
+    const naArvore = Boolean(alvoMapa && alvoMapa.tipo === "arvore");
+    $("aba-mapa").dataset.vista = naArvore ? "arvore" : "mapa";
+    $("mapaTopo").hidden = !naArvore;
+    const quadro = svg.parentElement;
+    tamanhoDoMapa = `${quadro.clientWidth}x${quadro.clientHeight}`;
+    if (naArvore) return renderArvore(d);
+    renderBolhas(svg, d.trabalho, larguraDoMapa(svg));
+  }
+
+  function renderBolhas(svg, t, W) {
     $("legenda").replaceChildren(...CORES.map(c => h("span", {}, bolinha(c), ROTULO[c])),
-      h("span", {}, "clique na linha para abrir embaixo; no passo, para ler inteiro"), h("span", {}, "↑ ↓ andam · → abre · ← fecha · Esc fecha"));
-    if (!d.trabalho) {
-      caixa.replaceChildren(h("p", { class: "vazio" }, "O Copiloto instalado ainda não manda o mapa de trabalho. Mescle o PR dele e rode git pull em C:\\Dev\\Dev Seazone\\copiloto."));
+      h("span", {}, "cada bola é uma tarefa: cresce com os passos e quando precisa de você"),
+      h("span", {}, "clique na bola para a árvore da tarefa; no nome do projeto, para a do projeto"));
+    if (!t) {
+      svg.append(s("text", { x: 40, y: 60, class: "mapa-aviso" }, "O Copiloto instalado ainda não manda o mapa de trabalho."),
+        s("text", { x: 40, y: 80, class: "mapa-aviso" }, "Mescle o PR dele e rode git pull em C:\\Dev\\Dev Seazone\\copiloto."));
       return;
     }
-    const arvore = V.arvoreDoMapa(d.trabalho, { busca: ui.busca, cor: ui.cor });
-    if (fechadosNaBusca.busca !== ui.busca) { fechadosNaBusca.busca = ui.busca; fechadosNaBusca.nomes.clear(); }
-    abertosPelaBusca = new Set(arvore.projetos.filter(p => p.pelaBusca && !fechadosNaBusca.nomes.has(p.nome)).map(p => p.nome));
-    if (!arvore.projetos.length) {
-      caixa.replaceChildren(h("p", { class: "vazio" }, ui.busca || ui.cor ? "Nada no Mapa bate com a busca ou com a cor escolhida." : "Nenhuma tarefa aberta nem sessão ativa."));
+    const sessoes = t.sessoes || {};
+    const tarefas = t.projetos.flatMap(p => p.tarefas.map(x => ({ ...x, projeto: p.nome })));
+    if (!tarefas.length) {
+      svg.append(s("text", { x: W / 2, y: 330, "text-anchor": "middle", class: "mapa-aviso" }, "Nenhuma tarefa aberta nem sessão ativa."));
       return;
     }
-    const a = mapaAberto();
-    caixa.replaceChildren(...arvore.projetos.map(p => noProjeto(p, a, d)));
-    caixa.scrollTop = rolagem;
-    const voltar = foco && caixa.querySelector(`[data-chave="${CSS.escape(foco)}"] > .linha-arvore`);
-    if (voltar && !voltar.closest(".ramo[inert]")) voltar.focus({ preventScroll: true });
-  }
-
-  // Um no da arvore: a linha (clicavel, com a seta quando tem ramo) e o ramo embaixo dela, que abre com movimento.
-  function noArvore({ chave, nivel, aberto, rotulo, linha, acao, ramo }) {
-    const temRamo = Array.isArray(ramo) && ramo.length > 0;
-    const l = h("div", { class: "linha-arvore", tabindex: "0", role: "button", "aria-label": rotulo,
-      "aria-expanded": temRamo ? String(aberto) : null }, h("span", { class: "seta-arvore", "aria-hidden": "true" }, temRamo ? "▸" : ""), ...linha);
-    if (acao) clicavel(l, acao);
-    const no = h("div", { class: `no-arvore n${nivel}${temRamo && aberto ? " aberto" : ""}`, "data-chave": chave }, l);
-    if (temRamo) no.append(h("div", { class: "ramo", inert: !aberto }, h("div", { class: "dentro" }, ...ramo)));
-    return no;
-  }
-
-  function noProjeto(p, a, d) {
-    const aberto = a.projeto === p.nome || abertosPelaBusca.has(p.nome);
-    const conta = p.semTarefa ? plural(p.sessoes, "sessão", "sessões") : plural(p.tarefas.length, "tarefa aberta", "tarefas abertas");
-    const meta = [conta, p.precisa ? `${p.precisa} ${p.precisa === 1 ? "precisa" : "precisam"} de você` : "", p.vivas ? `${p.vivas} na memória` : ""];
-    return noArvore({ chave: `projeto:${p.nome}`, nivel: 1, aberto, rotulo: `${p.nome}: ${meta.filter(Boolean).join(", ")}`,
-      linha: [bolinha(p.cor), h("b", { class: "nome-arvore" }, p.nome), h("span", { class: "meta-arvore" }, meta.filter(Boolean).join(" · ")),
-        h("span", { class: "pontos", "aria-hidden": "true" }, ...p.tarefas.slice(0, PONTOS).map(t => h("i", { class: `ponto ${t.cor}` })),
-          p.tarefas.length > PONTOS ? h("small", {}, `+${p.tarefas.length - PONTOS}`) : null)],
-      acao: () => alternar({ tipo: "projeto", id: p.nome }), ramo: p.tarefas.map(t => noTarefa(t, p, a, d)) });
-  }
-
-  function noTarefa(t, p, a, d) {
-    const aberto = a.tarefa === t.id;
-    if (t.pasta) {
-      return noArvore({ chave: `tarefa:${t.id}`, nivel: 2, aberto, rotulo: `Sem tarefa · ${t.titulo}`,
-        linha: [bolinha(t.cor), h("span", { class: "titulo-arvore" }, `Sem tarefa · ${t.titulo}`), h("span", { class: "meta-arvore" }, plural(t.sessoes.length, "sessão", "sessões"))],
-        acao: () => alternar({ tipo: "tarefa", id: t.id, projeto: p.nome }), ramo: t.sessoes.map(x => noSessao(x, a)) });
+    const vivas = x => x.sessoes.filter(sid => (sessoes[sid] || {}).viva).length;
+    const { bolhas, grupos } = V.layoutBolhas(tarefas.map(x => ({ id: x.id, grupo: x.projeto, r: V.raioDaTarefa(x, vivas(x)) })), { x: 16, y: 12, w: W - 32, h: 636 });
+    const termo = V.semAcento(ui.busca).trim();
+    const apagada = x => Boolean((ui.cor && x.cor !== ui.cor) || (termo && ![x.projeto, x.id, x.titulo].some(c => V.semAcento(c).includes(termo))));
+    const porId = new Map(tarefas.map(x => [x.id, x]));
+    const animar = animarBolhas;
+    animarBolhas = false;
+    bolhas.forEach((b, i) => {
+      const x = porId.get(b.id);
+      // a pasta e uma bola menor, com o nome numa fonte menor
+      const linhas = x.pasta ? V.textoNaBola(x.titulo, b.r, { letra: 5.6, altura: 12 }) : V.textoNaBola(x.titulo, b.r - 3);
+      const entre = x.pasta ? 12 : 14;
+      const topo = 4 - ((linhas.length - 1) * entre) / 2;
+      const n = vivas(x);
+      const dica = x.pasta ? `Sem tarefa · ${x.titulo}: ${x.sessoes.length} ${x.sessoes.length === 1 ? "sessão" : "sessões"}. Clique para a árvore delas.`
+        : `${x.id} · ${x.titulo}\n${x.status || "sem status"}${x.passos ? ` · ${x.passos} ${x.passos === 1 ? "passo" : "passos"}` : ""}${n ? ` · ${n} na memória` : ""}. Clique para a árvore da tarefa.`;
+      const precisa = x.aberta && (x.cor === "atencao" || x.cor === "problema");
+      const bolha = s("g", { class: `bolha ${x.cor}${x.pasta ? " pasta" : ""}${x.aberta ? "" : " fechada"}${precisa ? " precisa" : ""}${animar ? " surgir" : ""}`,
+        transform: `translate(${b.x},${b.y})`, tabindex: "0", role: "button", "aria-label": dica, opacity: apagada(x) ? 0.22 : null },
+        s("title", {}, dica),
+        s("g", { class: "bolha-corpo", style: `--atraso:${(i * 53) % 1300}ms` },
+          s("circle", { r: b.r + 6, class: "aura" }), s("circle", { r: b.r, class: "bola" }),
+          s("text", { "text-anchor": "middle" }, linhas.map((l, k) => s("tspan", { x: 0, y: topo + k * entre }, l)))));
+      svg.append(clicavel(bolha, () => abrirArvore(x.pasta ? "pasta" : "tarefa", x.id)));
+    });
+    // o nome de cada projeto em cima do cacho, medido depois de desenhado: fica dentro do desenho e, se encosta no nome
+    // de um projeto mais urgente (que veio antes), encurta; se nem curto cabe, vai para baixo do cacho
+    const postos = [];
+    for (const g of grupos) {
+      const p = t.projetos.find(x => x.nome === g.nome);
+      const conta = p.nome === "Sem tarefa" ? `${p.sessoes} ${p.sessoes === 1 ? "sessão" : "sessões"}` : `${p.abertas} ${p.abertas === 1 ? "aberta" : "abertas"}`;
+      const nome = document.createTextNode("");
+      const rotulo = s("text", { x: g.x, y: g.rotuloY, "text-anchor": "middle", class: "cacho-rot", tabindex: "0", role: "button",
+        opacity: tarefas.filter(x => x.projeto === p.nome).every(apagada) ? 0.35 : null },
+        s("title", {}, `${p.nome}: ${conta}, ${p.sessoes} ${p.sessoes === 1 ? "sessão" : "sessões"} (${p.vivas} na memória). Clique para a árvore do projeto.`), nome);
+      svg.append(clicavel(rotulo, () => abrirArvore(p.nome === "Sem tarefa" ? "semtarefa" : "projeto", p.nome)));
+      const colocar = (n, y) => {
+        nome.data = `${curto(p.nome, n)} · ${conta}`;
+        const w = rotulo.getComputedTextLength(), x = Math.min(Math.max(g.x, w / 2 + 6), W - w / 2 - 6);
+        rotulo.setAttribute("x", x);
+        rotulo.setAttribute("y", y);
+        return { x0: x - w / 2, x1: x + w / 2, y0: y - 12, y1: y + 3 };
+      };
+      const encosta = c => postos.some(o => c.x0 < o.x1 + 8 && o.x0 < c.x1 + 8 && c.y0 < o.y1 && o.y0 < c.y1);
+      const tentar = y => {
+        let n = Math.max(24, Math.floor((2 * g.r) / 7)), caixa = colocar(n, y);
+        while (n > 8 && encosta(caixa)) caixa = colocar(n -= 2, y);
+        return caixa;
+      };
+      let caixa = tentar(g.rotuloY);
+      if (encosta(caixa) && g.y + g.r + 16 <= 654) caixa = tentar(g.y + g.r + 16);
+      postos.push(caixa);
     }
-    const meta = [t.estado, t.passos ? plural(t.passos, "passo", "passos") : ""].filter(Boolean).join(" · ");
-    const ramo = [h("div", { class: "historia-arvore", "data-historia": t.id }, ...(aberto ? conteudoHistoria(t.id, d) : [])),
-      ...(t.sessoes.length ? [h("p", { class: "sub-arvore" }, "Sessões da tarefa"), ...t.sessoes.map(x => noSessao(x, a))] : [])];
-    return noArvore({ chave: `tarefa:${t.id}`, nivel: 2, aberto, rotulo: [`${t.id} · ${t.titulo}`, t.selo, meta].filter(Boolean).join(" · "),
-      linha: [bolinha(t.cor), h("code", { class: "id-arvore" }, t.id), h("span", { class: "titulo-arvore" }, t.titulo),
-        t.selo ? h("span", { class: `selo-arvore ${t.cor}` }, t.selo) : null,
-        meta ? h("span", { class: "meta-arvore" }, meta) : null, t.vivas ? h("span", { class: "chip" }, `${t.vivas} na memória`) : null],
-      acao: () => alternar({ tipo: "tarefa", id: t.id, projeto: p.nome }), ramo });
   }
 
-  // A sessao: a seta abre as subsessoes (ate 8; o resto abre a sessao), e o nome abre a conversa na gaveta.
-  function noSessao(x, a) {
-    const sub = x.subsessoes || { total: 0, itens: [] };
-    const itens = (sub.itens || []).slice(0, 8);
-    const ramo = sub.total ? [
-      ...itens.map(y => noArvore({ chave: `sub:${x.sessao}:${y.id}`, nivel: 4, aberto: false, rotulo: `${y.descricao || y.tipo || y.id}: ${y.estado || ""}`,
-        linha: [bolinha(y.cor), h("span", { class: "titulo-arvore fino" }, y.descricao || y.tipo || y.id), h("span", { class: "meta-arvore" }, y.estado || "")],
-        acao: () => abrirGaveta("sub", `${x.sessao}:${y.id}`) })),
-      sub.total > itens.length ? h("button", { class: "mais-arvore", type: "button", onclick: () => abrirGaveta("sessao", x.sessao) }, `+${sub.total - itens.length} subsessões: abrir a sessão`) : null,
-    ].filter(Boolean) : null;
-    return noArvore({ chave: `sessao:${x.sessao}`, nivel: 3, aberto: a.sessao === x.sessao, rotulo: `${x.nome}: ${x.estado}`,
-      linha: [bolinha(x.cor), h("button", { class: "link-arvore", type: "button", title: "Abrir a conversa",
-        onclick: e => { e.stopPropagation(); abrirGaveta("sessao", x.sessao); } }, x.nome),
-      h("span", { class: "meta-arvore" }, [x.estado, sub.total ? plural(sub.total, "subsessão", "subsessões") : ""].filter(Boolean).join(" · "))],
-      acao: ramo ? () => alternar({ tipo: "sessao", id: x.sessao }) : () => abrirGaveta("sessao", x.sessao), ramo });
-  }
-
-  function alternar(alvo) {
-    // o projeto que a busca abriu fecha sem mexer no que ele tinha aberto, e fica fechado ate a busca mudar
-    if (alvo.tipo === "projeto" && abertosPelaBusca.delete(alvo.id)) {
-      fechadosNaBusca.nomes.add(alvo.id);
-      if (mapaAberto().projeto !== alvo.id) return aplicarMapa();
-    }
-    ui.mapa = V.alternarNoMapa(mapaAberto(), alvo);
-    salvarPreferencias();
-    aplicarMapa();
-  }
-  // Acerta as classes com o ui.mapa, sem redesenhar: o ramo que abre cresce e o que fecha encolhe. A tarefa que abriu
-  // ganha a historia (lida da nota no primeiro clique) e o que abriu vem para a vista.
-  function aplicarMapa() {
-    const a = mapaAberto();
-    let abriu = null;
-    for (const no of $("arvore").querySelectorAll(".no-arvore[data-chave]")) {
-      const ramo = no.querySelector(":scope > .ramo");
-      if (!ramo) continue;
-      const [tipo, ...resto] = no.dataset.chave.split(":");
-      const id = resto.join(":");
-      const deve = tipo === "projeto" ? a.projeto === id || abertosPelaBusca.has(id) : tipo === "tarefa" ? a.tarefa === id : tipo === "sessao" ? a.sessao === id : false;
-      if (deve === no.classList.contains("aberto")) continue;
-      const linhaDoNo = no.querySelector(":scope > .linha-arvore");
-      if (!deve && ramo.contains(document.activeElement)) linhaDoNo.focus({ preventScroll: true });  // o foco nao some com o ramo
-      no.classList.toggle("aberto", deve);
-      linhaDoNo.setAttribute("aria-expanded", String(deve));
-      ramo.inert = !deve;
-      if (deve) {
-        abriu = no;
-        if (tipo === "tarefa") {
-          trazerQuandoChegar = historias.get(id) && historias.get(id).dados ? null : id;
-          preencherHistoria(id);
-        }
-      }
-    }
-    if (abriu) setTimeout(() => trazerParaAVista(abriu), 280);
-  }
-  function trazerParaAVista(no) {
-    const caixa = $("arvore"), r = no.getBoundingClientRect(), c = caixa.getBoundingClientRect();
-    if (r.bottom > c.bottom - 8) caixa.scrollBy({ top: Math.min(r.bottom - c.bottom + 8, r.top - c.top - 8), behavior: "smooth" });
-    else if (r.top < c.top) caixa.scrollBy({ top: r.top - c.top - 8, behavior: "smooth" });
-  }
-  // ↑ ↓ andam entre as linhas que aparecem; → abre (ou desce para o primeiro filho); ← fecha (ou sobe para o pai);
-  // espaco abre e fecha. O Enter vem do clicavel.
-  function teclaNaArvore(e) {
-    const l = e.target;
-    if (!l.classList || !l.classList.contains("linha-arvore")) return;
-    const visiveis = [...$("arvore").querySelectorAll(".linha-arvore")].filter(x => !x.closest(".ramo[inert]"));
-    const i = visiveis.indexOf(l), no = l.parentElement, temRamo = Boolean(no.querySelector(":scope > .ramo")), aberto = no.classList.contains("aberto");
-    const ir = x => { if (x) { e.preventDefault(); x.focus(); } };
-    if (e.key === "ArrowDown") ir(visiveis[i + 1]);
-    else if (e.key === "ArrowUp") ir(visiveis[i - 1]);
-    else if (e.key === "ArrowRight" && temRamo) { if (aberto) ir(visiveis[i + 1]); else { e.preventDefault(); l.click(); } }
-    else if (e.key === "ArrowLeft") {
-      if (temRamo && aberto) { e.preventDefault(); l.click(); }
-      else { const pai = no.parentElement.closest(".no-arvore"); ir(pai && pai.querySelector(":scope > .linha-arvore")); }
-    } else if (e.key === " ") { e.preventDefault(); l.click(); }
-  }
-  // "Ver a historia da tarefa" (gaveta): abre o Mapa com o projeto e a tarefa abertos
-  function verHistoria(id) {
-    const caminho = resposta && V.abrirNoMapa(resposta.dados.trabalho, id);
-    if (!caminho) return;
-    ui.aba = "mapa";
-    ui.mapa = caminho;
-    trazerQuandoChegar = historias.get(id) && historias.get(id).dados ? null : id;
-    salvarPreferencias();
+  function voltarAoMapa() {
+    alvoMapa = null;
+    animarBolhas = true;
     renderizar();
-    const no = $("arvore").querySelector(`[data-chave="${CSS.escape(`tarefa:${id}`)}"]`);
-    if (no) setTimeout(() => trazerParaAVista(no), 60);
   }
 
-  // Historia da tarefa (docs/specs/mapa-historia.md), agora em linha do tempo de cima para baixo dentro do ramo: pedido →
-  // os ultimos passos ("+N anteriores" abre mais acima) → agora ⇢ meta. A nota e lida no clique (cli.py tarefa historia)
-  // e de novo a cada 30 s enquanto a tarefa esta aberta.
-  async function carregarHistoria(id) {
-    const atual = historias.get(id) || {};
+  // Arvore de decisao (docs/specs/mapa-bolas-arvore.md): o clique na bola abre a arvore da tarefa; no nome do projeto,
+  // a do projeto. De cima para baixo: a parte com filhos abre e fecha no clique (uma aberta por nivel), a decisao e um
+  // losango e o ramo leva o rotulo na linha. As partes vem da nota (## Partes) pelo Copiloto (cli.py tarefa arvore e
+  // projeto arvore, ADR 030); sem partes, a historia vem em partes: o pedido, o feito, o agora e o pronto quando.
+  // Relida a cada 30 s enquanto aberta, sem fechar nada.
+  const arvores = new Map();  // "tarefa:T-..." | "projeto:Nome" → { dados, carregando, erro, em }
+  let abertosArvore = null;  // chaves abertas; null = a arvore acabou de abrir (abre a raiz e o que a nota manda)
+  let visiveisArvore = new Set();  // o que ja estava na tela: so o que aparece agora surge com movimento
+  const ESTADO_ARVORE = { feito: "feito", andando: "andando", falta: "falta", espera: "espera alguém de fora",
+    voce: "precisa de você", descartado: "descartado", decisao: "decisão", nota: "nota" };
+  const semMovimento = () => Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function verHistoria(id) {
+    if (ui.aba !== "mapa") { ui.aba = "mapa"; salvarPreferencias(); }
+    abrirArvore("tarefa", id);
+  }
+  function abrirArvore(alvo, id) {
+    alvoMapa = { tipo: "arvore", alvo, id };
+    abertosArvore = null;
+    visiveisArvore = new Set();
+    if (alvo === "tarefa" || alvo === "projeto") carregarArvore(alvo, id);
+    renderizar();
+  }
+  async function carregarArvore(alvo, id) {
+    const chave = `${alvo}:${id}`;
+    const atual = arvores.get(chave) || {};
     if (atual.carregando) return;
-    historias.set(id, { ...atual, carregando: true, erro: "" });
+    arvores.set(chave, { ...atual, carregando: true, erro: "" });
     try {
-      const r = await fetch(`/api/tarefas/${encodeURIComponent(id)}/historia`, { cache: "no-store" });
+      const r = await fetch(`/api/${alvo === "projeto" ? "projetos" : "tarefas"}/${encodeURIComponent(id)}/arvore`, { cache: "no-store" });
       const corpo = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(corpo.error || `O servidor respondeu ${r.status}.`);
-      historias.set(id, { dados: corpo, carregando: false, erro: "", em: Date.now() });
+      arvores.set(chave, { dados: corpo, carregando: false, erro: "", em: Date.now() });
     } catch (erro) {
-      historias.set(id, { ...(historias.get(id) || {}), carregando: false, erro: V.mensagemDeFalha(erro), em: Date.now() });
+      arvores.set(chave, { ...(arvores.get(chave) || {}), carregando: false, erro: V.mensagemDeFalha(erro), em: Date.now() });
     }
-    if (resposta && ui.aba === "mapa" && mapaAberto().tarefa === id) {
-      preencherHistoria(id);
-      if (trazerQuandoChegar === id) {  // chegou depois do movimento de abrir: so agora da para trazer a historia inteira
-        trazerQuandoChegar = null;
-        const no = $("arvore").querySelector(`[data-chave="${CSS.escape(`tarefa:${id}`)}"]`);
-        if (no) setTimeout(() => trazerParaAVista(no), 300);
+    if (resposta && ui.aba === "mapa" && alvoMapa && alvoMapa.tipo === "arvore" && `${alvoMapa.alvo}:${alvoMapa.id}` === chave) renderMapa(resposta.dados);
+  }
+  // os dados da arvore: da nota (tarefa e projeto) ou montados aqui (a pasta e "Sem tarefa", que nao tem nota)
+  function dadosDaArvore(d) {
+    const t = d.trabalho || { projetos: [], sessoes: {} };
+    if (alvoMapa.alvo === "pasta" || alvoMapa.alvo === "semtarefa") {
+      const sem = (t.projetos || []).find(p => p.nome === "Sem tarefa");
+      const pastas = sem ? sem.tarefas : [];
+      if (alvoMapa.alvo === "semtarefa") {
+        return { dados: { tipo: "semtarefa", texto: "Sem tarefa", estado: "nota", tarefas: [], filhos: pastas.map(x => V.arvoreDaPasta(x, t.sessoes || {})) } };
+      }
+      const x = pastas.find(p => p.id === alvoMapa.id);
+      return x ? { dados: V.arvoreDaPasta(x, t.sessoes || {}) } : { erro: "A pasta saiu do Mapa: as sessões dela fecharam." };
+    }
+    const chave = `${alvoMapa.alvo}:${alvoMapa.id}`;
+    const estado = arvores.get(chave);
+    if (!estado || (!estado.carregando && Date.now() - (estado.em || 0) > 30000)) carregarArvore(alvoMapa.alvo, alvoMapa.id);
+    return estado || { carregando: true };
+  }
+  function renderArvore(d) {
+    const caixa = $("arvoreDecisao");
+    const estado = dadosDaArvore(d);
+    const raiz = estado.dados;
+    const t = d.trabalho || { projetos: [], sessoes: {} };
+    const projetos = t.projetos || [];
+    // em cima: o projeto (abre a arvore dele) › a tarefa, de onde vem a arvore, e as sessoes vivas, que abrem a conversa
+    const projeto = alvoMapa.alvo === "tarefa" ? projetos.find(p => p.tarefas.some(x => x.id === alvoMapa.id)) : null;
+    const tarefa = projeto ? projeto.tarefas.find(x => x.id === alvoMapa.id) : null;
+    const ids = alvoMapa.alvo === "tarefa" ? ((tarefa && tarefa.sessoes) || [])
+      : alvoMapa.alvo === "projeto" ? ((projetos.find(p => p.nome === alvoMapa.id) || { tarefas: [] }).tarefas.flatMap(x => x.sessoes || [])) : [];
+    const vivas = [...new Set(ids)].map(sid => ({ sid, ...((t.sessoes || {})[sid] || {}) })).filter(x => x.viva);
+    const fonte = raiz && { partes: "partes da nota", historia: "sem partes: a história", tarefas: "sem nota: as tarefas" }[raiz.fonte];
+    $("mapaTrilha").replaceChildren(...[
+      projeto ? h("button", { class: "trilha-link", type: "button", title: "Árvore do projeto", onclick: () => abrirArvore("projeto", projeto.nome) }, projeto.nome) : null,
+      projeto ? " › " : null,
+      h("b", {}, alvoMapa.alvo === "tarefa" ? `${alvoMapa.id} · ${(raiz && raiz.texto) || (tarefa && tarefa.titulo) || ""}` : (raiz && raiz.texto) || alvoMapa.id),
+      fonte ? h("small", {}, fonte) : null,
+      ...vivas.slice(0, 4).map(x => h("button", { class: "pilula", type: "button", title: `${x.nome || x.sid}: ${x.estado || "viva"}. Clique para a conversa.`,
+        onclick: () => abrirGaveta("sessao", x.sid) }, bolinha(x.cor || "bem"), curto(x.nome || x.sid, 22)))].filter(Boolean));
+    $("legenda").replaceChildren(
+      ...["feito", "andando", "falta", "espera", "voce", "descartado"].map(e => h("span", {}, h("i", { class: `ponto-arvore ${e}` }), ESTADO_ARVORE[e])),
+      h("span", {}, h("i", { class: "ponto-arvore decisao" }), "decisão: o ramo leva o rótulo"),
+      h("span", {}, "clique na parte para abrir (uma por nível); no id, a gaveta da tarefa"), h("span", {}, "← Mapa ou Esc volta"));
+    if (!raiz) {
+      const deNovo = alvoMapa.alvo === "tarefa" || alvoMapa.alvo === "projeto";
+      caixa.replaceChildren(estado.erro && !estado.carregando
+        ? h("div", { class: "falha" }, h("h2", {}, "Não consegui ler a árvore"), h("p", {}, estado.erro),
+          deNovo ? h("button", { class: "botao pequeno", type: "button", onclick: () => carregarArvore(alvoMapa.alvo, alvoMapa.id) }, "Tentar de novo") : null)
+        : h("p", { class: "vazio" }, "Lendo a nota…"));
+      return;
+    }
+    if (!abertosArvore) abertosArvore = V.abertosIniciais(raiz);
+    desenharArvore(caixa, raiz);
+  }
+  function desenharArvore(caixa, raiz, foco = null) {
+    const livre = Math.max(320, caixa.clientWidth - 12);
+    const L = V.layoutArvore(raiz, abertosArvore, livre);
+    const A = V.ARVORE;
+    // cabe no quadro: encolhe ate 80% para nao rolar; abaixo disso a letra fica miuda, e o quadro rola por dentro
+    const escala = Math.min(1, Math.max(0.8, Math.min(livre / L.largura, (caixa.clientHeight - 4) / L.altura)));
+    const svg = s("svg", { width: Math.floor(L.largura * escala), height: Math.floor(L.altura * escala),
+      viewBox: `0 0 ${L.largura} ${L.altura}`, class: "arvore-svg", role: "group" });
+    const linhas = s("g", { class: "arestas" });
+    for (const e of L.arestas) {
+      // cotovelo: desce do pe do pai ate o barramento, corre ate cima do filho e desce; o rotulo vai na descida do filho.
+      // O barramento passa embaixo da linha inteira do pai (e.y2 - vaoY e o fundo dela), nao atras das vizinhas mais altas.
+      const ym = e.y2 - A.vaoY + 16;
+      const lado = Math.sign(e.x2 - e.x1);
+      const raio = Math.min(8, Math.abs(e.x2 - e.x1) / 2, ym - e.y1, e.y2 - ym);
+      const d = lado === 0 ? `M${e.x1},${e.y1} V${e.y2}`
+        : `M${e.x1},${e.y1} V${ym - raio} Q${e.x1},${ym} ${e.x1 + lado * raio},${ym} H${e.x2 - lado * raio} Q${e.x2},${ym} ${e.x2},${ym + raio} V${e.y2}`;
+      linhas.append(s("path", { class: `aresta-arvore${visiveisArvore.has(e.para) ? "" : " surgir"}`, d }));
+      if (e.rotulo) {
+        const largura = Math.max(26, e.rotulo.length * 6.5 + 12);
+        linhas.append(s("g", { class: "rotulo-ramo", transform: `translate(${e.x2},${(ym + e.y2) / 2})` },
+          s("rect", { x: -largura / 2, y: -8, width: largura, height: 16, rx: 8 }), s("text", { "text-anchor": "middle", y: 3.5 }, e.rotulo)));
       }
     }
-    if (gaveta && gaveta.tipo === "historia" && gaveta.id.startsWith(`${id}|`)) abrirGaveta("historia", gaveta.id, true);
+    svg.append(linhas);
+    let focar = null;
+    for (const n of L.nos) {
+      const no = n.no;
+      const ids = n.prof > 0 ? (no.tarefas || []) : [];
+      const total = (no.filhos || []).length;
+      const dica = `${no.rotulo ? `${no.rotulo}: ` : ""}${no.texto} · ${n.prof === 0 ? "raiz" : ESTADO_ARVORE[no.estado] || no.estado || ""}`
+        + (n.temFilhos && n.prof > 0 ? (n.aberto ? ". Clique para fechar." : `. Clique para abrir ${total} ${total === 1 ? "parte" : "partes"}.`) : "");
+      const corpo = s("g", { class: "no-corpo" },
+        n.decisao ? s("polygon", { class: "forma", points: `${n.w / 2},0 ${n.w},${n.h / 2} ${n.w / 2},${n.h} 0,${n.h / 2}` })
+          : s("rect", { class: "forma", width: n.w, height: n.h, rx: n.prof === 0 ? 14 : 10 }));
+      const topo = n.decisao ? n.h / 2 - ((n.linhas.length - 1) * A.linha) / 2 + 4 : A.pad + 11;
+      corpo.append(s("text", { class: "texto-no", "text-anchor": "middle" }, n.linhas.map((l, k) => s("tspan", { x: n.w / 2, y: topo + k * A.linha }, l))));
+      if (ids.length) {
+        corpo.append(clicavel(s("text", { class: "id-no", "text-anchor": "middle", x: n.w / 2, y: n.h - 8, tabindex: "0", role: "link" },
+          s("title", {}, `Abrir a gaveta de ${ids[0]}`), `${ids[0]}${ids.length > 1 ? ` +${ids.length - 1}` : ""} ↗`),
+          ev => { if (ev) ev.stopPropagation(); abrirGaveta("tarefa", ids[0]); }));
+      }
+      if (n.temFilhos && n.prof > 0) {
+        corpo.append(s("g", { class: "mais-no", transform: `translate(${n.decisao ? n.w / 2 : n.w - 13},${n.decisao ? n.h - 2 : 13})` },
+          s("circle", { r: 9 }), s("text", { "text-anchor": "middle", y: 4 }, n.aberto ? "−" : String(total))));
+      }
+      const estadoCss = n.prof === 0 ? "raiz" : (no.estado || "nota");
+      const g = s("g", { class: `no-dec ${estadoCss}${n.aberto && n.prof > 0 ? " aberto" : ""}${n.temFilhos ? " com-filhos" : ""}${visiveisArvore.has(n.chave) ? "" : " surgir"}`,
+        transform: `translate(${n.x},${n.y})`, tabindex: "0", role: "button", "aria-label": dica,
+        "aria-expanded": n.temFilhos && n.prof > 0 ? String(n.aberto) : null }, s("title", {}, dica), corpo);
+      const acao = n.prof === 0 ? (alvoMapa.alvo === "tarefa" ? () => abrirGaveta("tarefa", alvoMapa.id) : null)
+        : no.sessao ? () => abrirGaveta("sessao", no.sessao)
+        : n.temFilhos ? () => alternarArvore(raiz, n.chave)
+        : ids.length ? () => abrirGaveta("tarefa", ids[0]) : null;
+      svg.append(acao ? clicavel(g, acao) : g);
+      if (foco === n.chave) focar = g;
+    }
+    visiveisArvore = new Set(L.nos.map(n => n.chave));
+    caixa.replaceChildren(svg);
+    if (focar) {
+      focar.focus({ preventScroll: true });
+      focar.scrollIntoView({ block: "nearest", inline: "center", behavior: semMovimento() ? "auto" : "smooth" });
+    }
   }
-  function preencherHistoria(id) {
-    const alvo = $("arvore").querySelector(`[data-historia="${CSS.escape(id)}"]`);
-    if (alvo && resposta) alvo.replaceChildren(...conteudoHistoria(id, resposta.dados));
-  }
-  function conteudoHistoria(id, d) {
-    const estado = historias.get(id);
-    if (!estado || (!estado.carregando && Date.now() - (estado.em || 0) > 30000)) carregarHistoria(id);
-    const H = estado && estado.dados;
-    if (!H) {
-      return [estado && estado.erro && !estado.carregando
-        ? h("p", { class: "falha-arvore" }, `Não consegui ler a história da tarefa: ${estado.erro} `,
-          h("button", { class: "mini", type: "button", onclick: () => carregarHistoria(id) }, "Tentar de novo"))
-        : h("p", { class: "carregando-arvore" }, "Lendo a nota da tarefa…")];
-    }
-    const t = tarefaDoMapa(d, id);
-    const sessoesDaTarefa = ((t && t.sessoes) || []).map(sid => ((d.trabalho && d.trabalho.sessoes) || {})[sid]).filter(Boolean);
-    const { porPasso, noAgora } = V.sessoesNosPassos(H.passos, sessoesDaTarefa);
-    const fila = (d.voce && d.voce.itens) || [];
-    const naFila = fila.find(i => i.id === id);
-    const pendentes = new Set(fila.map(i => i.id));
-    const agora = V.agoraDaHistoria(H.agora);
-    const f = V.fatiaDaHistoria(H.passos.length, null, passosVistos.get(id) || PASSOS_INICIAIS);
-    const abrirParte = parte => () => abrirGaveta("historia", `${id}|${parte}`);
-    const pilulaSessao = x => h("button", { class: "pilula", type: "button", title: `${x.nome}: ${x.estado}. Clique para a conversa.`,
-      onclick: e => { e.stopPropagation(); abrirGaveta("sessao", x.sessao); } }, bolinha(x.cor), curto(x.nome, 24));
-    const marco = (classe, acao, ...filhos) => clicavel(h("li", { class: `marco ${classe}`, tabindex: "0", role: "button" }, ...filhos), acao);
-    const topo = (texto, quem) => h("p", { class: "marco-topo" }, texto, quem ? h("span", { class: "marco-quem" }, quem) : null);
-    const texto = (valor, limite, vazio) => h("p", { class: "marco-texto" }, V.resumoDoPasso(valor, limite) || vazio);
-    const p = H.pedido || {};
-    const quem = [p.por, p.origem].filter(Boolean).join(" · ");
-    const itens = [marco("pedido", abrirParte("pedido"), topo(`Pedido${p.criada ? ` · ${dataCurta(p.criada)}` : ""}`, quem),
-      texto(p.por_que, 240, "A nota não diz por quê."))];
-    if (f.antes) {
-      itens.push(h("li", { class: "marco mais" }, h("button", { class: "mais-arvore", type: "button", title: "Abrir os passos de antes",
-        onclick: () => { passosVistos.set(id, (passosVistos.get(id) || PASSOS_INICIAIS) + PASSOS_A_MAIS); preencherHistoria(id); } },
-      `+${plural(f.antes, "passo anterior", "passos anteriores")}`)));
-    }
-    for (let i = f.de; i < f.ate; i++) {
-      const passo = H.passos[i], delas = porPasso[i] || [];
-      itens.push(marco("passo", abrirParte(`passo:${i}`), topo(`Passo ${i + 1} · ${passo.quando}`), texto(passo.texto, 260, "(vazio)"),
-        delas.length ? h("div", { class: "pilulas" }, delas.map(pilulaSessao)) : null));
-    }
-    const pilulas = [...(H.rascunhos || []).map(r => h("button", { class: "pilula rascunho", type: "button", disabled: !pendentes.has(r.id), title: r.texto,
-      onclick: e => { e.stopPropagation(); abrirGaveta("voce", r.id); } }, `${r.id} · revisar`)), ...noAgora.map(pilulaSessao)];
-    itens.push(marco(`agora ${agora.cor}`, () => abrirGaveta("tarefa", id),
-      h("div", { class: "marco-cabeca" }, topo(`Agora · ${agora.rotulo}`),
-        naFila ? h("button", { class: "mini principal", type: "button", onclick: e => { e.stopPropagation(); abrirGaveta("voce", id); } }, "Responder") : null,
-        t && t.aberta ? botaoExcluir(id, "mini", "Excluir") : null),
-      texto(H.agora && H.agora.texto, 360, "Nada registrado ainda."), pilulas.length ? h("div", { class: "pilulas" }, pilulas) : null));
-    itens.push(marco("meta", abrirParte("meta"), topo("Meta · pronto quando"), texto(H.meta, 260, "A nota não diz quando fica pronta.")));
-    return [h("ol", { class: "linha-do-tempo" }, ...itens)];
-  }
-  // Uma parte da historia na gaveta: o pedido com o porque inteiro, a meta ou um passo, com o texto inteiro e os
-  // botoes para o passo anterior e o seguinte.
-  function gavetaHistoria(chave) {
-    const [id, parte = ""] = String(chave).split("|");
-    const H = (historias.get(id) || {}).dados;
-    if (!H) return null;
-    const inteiro = valor => h("div", { class: "texto-passo", tabindex: "0" }, trechos(valor));
-    if (parte === "pedido") {
-      const p = H.pedido || {};
-      const link = /^https?:\/\//.test(p.link || "") ? h("a", { href: p.link, target: "_blank", rel: "noopener noreferrer" }, p.origem || "abrir a origem") : p.origem;
-      return [h("p", { class: "eyebrow" }, `pedido · ${id}`), h("h3", {}, H.titulo),
-        h("dl", { class: "detalhes" }, linha("Quem pediu", p.por), linha("Onde", link), linha("Criada", dataCurta(p.criada)), linha("Prazo", dataCurta(H.prazo))),
-        p.por_que ? inteiro(p.por_que) : h("p", { class: "vazio" }, "A nota não diz por quê.")];
-    }
-    if (parte === "meta") return [h("p", { class: "eyebrow" }, `meta · ${id}`), h("h3", {}, "Pronto quando"), H.meta ? inteiro(H.meta) : h("p", { class: "vazio" }, "A nota não diz quando fica pronta.")];
-    const i = Number((/^passo:(\d+)$/.exec(parte) || [])[1]);
-    const p = Number.isInteger(i) ? H.passos[i] : null;
-    if (!p) return null;
-    const ir = j => () => abrirGaveta("historia", `${id}|passo:${j}`);
-    return [h("p", { class: "eyebrow" }, `passo ${i + 1} de ${H.passos.length} · ${p.quando}`), h("h3", {}, H.titulo), inteiro(p.texto),
-      h("div", { class: "acoes" },
-        h("button", { class: "botao pequeno secundario", type: "button", disabled: i === 0, onclick: ir(i - 1) }, "← Passo anterior"),
-        h("button", { class: "botao pequeno secundario", type: "button", disabled: i >= H.passos.length - 1, onclick: ir(i + 1) }, "Passo seguinte →"))];
+  function alternarArvore(raiz, chave) {
+    abertosArvore = V.alternarNo(abertosArvore || V.abertosIniciais(raiz), chave);
+    desenharArvore($("arvoreDecisao"), raiz, chave);
   }
 
   function renderHoje(d) {
@@ -763,11 +760,10 @@
         h("div", { class: "acoes" },
           h("button", { class: `botao pequeno secundario${levado ? " feito" : ""}`, type: "button", disabled: levado, title: "Cria uma tarefa de 30 min, com prazo hoje, na sua agenda",
             onclick: ev => levarParaAgenda(i, ev.currentTarget) }, levado ? "✓ Na agenda" : "Levar para a agenda"),
-          daTarefa ? h("button", { class: "botao pequeno secundario", type: "button", title: "Pedido, o que foi feito e onde a tarefa está, no Mapa",
-            onclick: () => { fecharGaveta(); verHistoria(daTarefa); } }, "Ver a história da tarefa") : null)];
+          daTarefa ? h("button", { class: "botao pequeno secundario", type: "button", title: "As partes da tarefa, de cima para baixo, no Mapa",
+            onclick: () => { fecharGaveta(); verHistoria(daTarefa); } }, "Ver a árvore da tarefa") : null)];
     }
     else if (tipo === "tarefa") corpo = gavetaTarefa(d, id);
-    else if (tipo === "historia") corpo = gavetaHistoria(id);
     else if (tipo === "sessao" || tipo === "sub") corpo = gavetaSessao(d, tipo, id, silencioso);
     if (!corpo) return fecharGaveta();
     // a releitura de 30 s redesenha a gaveta: a conversa volta para onde ele estava lendo
@@ -795,8 +791,8 @@
         linha("Nota", V.linkObsidian(t) ? h("a", { href: V.linkObsidian(t) }, "Abrir a nota no Obsidian") : "")),
       h("div", { class: "acoes" },
         naFila ? h("button", { class: "botao pequeno", type: "button", onclick: () => abrirGaveta("voce", naFila.id) }, naFila.tipo === "dar ok" ? "Revisar o rascunho" : "Responder na fila") : null,
-        !/^T-/.test(t.id) || (ui.aba === "mapa" && mapaAberto().tarefa === id) ? null
-          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); verHistoria(id); } }, "Ver a história da tarefa"),
+        !/^T-/.test(t.id) || (ui.aba === "mapa" && alvoMapa && alvoMapa.tipo === "arvore" && alvoMapa.alvo === "tarefa" && alvoMapa.id === id) ? null
+          : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); verHistoria(id); } }, "Ver a árvore da tarefa"),
         t.aberta && /^T-/.test(t.id) ? botaoExcluir(t.id, "botao pequeno", "Excluir tarefa") : null)];
   }
   // Sessao ou subsessao: o estado e a conversa, lida do fim para tras. A subsessao (subagente) so se le.
@@ -1052,6 +1048,7 @@
   NavRail.montar($("rail"), { ativo: "cockpit" });
   if ("speechSynthesis" in window) speechSynthesis.getVoices();  // o Chrome so carrega a lista de vozes depois da primeira chamada
   document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.aba === "mapa" && ui.aba !== "mapa") animarBolhas = true;
     ui.aba = b.dataset.aba; salvarPreferencias(); renderizar();
   }));
   document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
@@ -1063,14 +1060,19 @@
   $("abrirMestra").addEventListener("click", abrirMestra);
   $("fecharGaveta").addEventListener("click", fecharGaveta);
   $("veu").addEventListener("click", fecharGaveta);
-  $("arvore").addEventListener("keydown", teclaNaArvore);
+  $("voltarMapa").addEventListener("click", voltarAoMapa);
+  // o desenho segue o tamanho do quadro: redesenha quando a janela muda ou quando a aba Mapa aparece (escondida, mede 0)
+  new ResizeObserver(() => {
+    const quadro = $("mapa").parentElement;
+    if (resposta && ui.aba === "mapa" && `${quadro.clientWidth}x${quadro.clientHeight}` !== tamanhoDoMapa) renderMapa(resposta.dados);
+  }).observe($("mapa").parentElement);
   document.addEventListener("keydown", e => {
     const digitando = /^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || "");
     if (e.key === "/" && !digitando) { e.preventDefault(); $("busca").focus(); }
     else if (e.key === "Escape") {
       if (gaveta) fecharGaveta();
       else if (digitando) { $("busca").value = ""; ui.busca = ""; $("busca").blur(); renderizar(); }
-      else if (ui.aba === "mapa" && V.fecharNoMapa(ui.mapa)) { ui.mapa = V.fecharNoMapa(ui.mapa); salvarPreferencias(); aplicarMapa(); }
+      else if (alvoMapa && ui.aba === "mapa") voltarAoMapa();
     } else if ((e.key === "r" || e.key === "R") && !digitando && !e.ctrlKey && !e.metaKey && !e.altKey) carregar(true);
   });
   setInterval(marcarVivo, 1000);

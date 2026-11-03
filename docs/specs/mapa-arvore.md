@@ -6,6 +6,9 @@ data: 2026-11-02
 
 # Mapa em árvore: de cima para baixo, abrindo ao clicar
 
+> Em 03/11, as bolas voltaram e a árvore passou a abrir no clique, como árvore de decisão da tarefa
+> ([mapa-bolas-arvore](mapa-bolas-arvore.md)). A lista em árvore desta spec saiu.
+
 ## Pedido original
 
 > "melhore os grafos de tarefas e como eu visualizo eles quero que seja de cima para baixo na tela e ir se abrindo
