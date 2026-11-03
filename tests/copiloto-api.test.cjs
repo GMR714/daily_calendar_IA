@@ -149,11 +149,13 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   assert.match(html, /<button id="abrirMestra"/);  // a janela do chat que manda nas outras sessoes (ADR 022 do copiloto)
   assert.match(html, /<button id="abrirRotinas"/);  // Rotinas recolhida vira uma faixa que abre a coluna
   assert.match(html, /<button id="recolherRotinas"/);
-  assert.match(html, /<div id="arvore" class="arvore"/);  // o Mapa e uma arvore de cima para baixo (docs/specs/mapa-arvore.md)
-  assert.doesNotMatch(html, /<svg id="mapa"|id="voltarMapa"|id="historia"/);  // sairam as bolas, o grafo e os cartoes
-  assert.match(html, /cockpit\.js\?v=13/);
-  assert.match(html, /cockpit-view\.js\?v=13/);
-  assert.match(html, /cockpit\.css\?v=10/);
+  assert.match(html, /<svg id="mapa"/);  // as bolas voltaram (docs/specs/mapa-bolas-arvore.md)
+  assert.match(html, /<button id="voltarMapa"/);  // a arvore da tarefa volta ao Mapa
+  assert.match(html, /<div id="arvoreDecisao" class="arvore-decisao"/);  // o clique na bola abre a arvore de decisao
+  assert.doesNotMatch(html, /id="historia"|id="arvore" class="arvore"/);  // sairam os cartoes e a lista em arvore do #24
+  assert.match(html, /cockpit\.js\?v=14/);
+  assert.match(html, /cockpit-view\.js\?v=14/);
+  assert.match(html, /cockpit\.css\?v=11/);
 });
 
 // ------------------------------------------------------------------ a resposta pede o ciclo (30/10)
@@ -230,4 +232,28 @@ test("copiloto: o cli.py recebe tarefa registrar com o texto fixo e o status des
   const comandos = createCopilotoCommands({ run: async (argumentos, opcoes = {}) => { chamadas.push({ argumentos, entrada: opcoes.entrada }); return {}; } });
   await comandos.excluirTarefa("T-20261029-03");
   assert.deepEqual(chamadas, [{ argumentos: ["tarefa", "registrar", "T-20261029-03", "Descartada pela tela do cockpit.", "--status", "descartada"], entrada: undefined }]);
+});
+
+test("copiloto: a arvore da tarefa e a do projeto vem do Copiloto, com o id e o nome conferidos", async t => {
+  const pedidos = [];
+  const copiloto = { ...copilotoFalso(),
+    arvoreDaTarefa: async id => { pedidos.push(["tarefa", id]); return { tipo: "tarefa", id, filhos: [] }; },
+    arvoreDoProjeto: async nome => { pedidos.push(["projeto", nome]); return { tipo: "projeto", texto: nome, filhos: [] }; } };
+  const base = await abrir(t, copiloto);
+  const tarefa = await fetch(`${base}/api/tarefas/T-20261103-03/arvore`).then(r => r.json());
+  assert.equal(tarefa.id, "T-20261103-03");
+  const projeto = await fetch(`${base}/api/projetos/${encodeURIComponent("Jornada da Implantação")}/arvore`).then(r => r.json());
+  assert.equal(projeto.texto, "Jornada da Implantação");
+  for (const caminho of ["/api/tarefas/..%2Fx/arvore", "/api/projetos/..%2F..%2Fsegredo/arvore", "/api/projetos/a%5Cb/arvore"]) {
+    assert.equal((await fetch(base + caminho)).status, 400, caminho);
+  }
+  assert.deepEqual(pedidos, [["tarefa", "T-20261103-03"], ["projeto", "Jornada da Implantação"]]);
+});
+
+test("copiloto: os comandos da arvore chamam tarefa arvore e projeto arvore", async () => {
+  const chamadas = [];
+  const comandos = createCopilotoCommands({ run: async argumentos => { chamadas.push(argumentos); return {}; } });
+  await comandos.arvoreDaTarefa("T-20261103-03");
+  await comandos.arvoreDoProjeto("Jornada da Implantação");
+  assert.deepEqual(chamadas, [["tarefa", "arvore", "T-20261103-03"], ["projeto", "arvore", "Jornada da Implantação"]]);
 });

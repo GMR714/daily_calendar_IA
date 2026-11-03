@@ -26,6 +26,16 @@ function validarExclusao({ tarefa } = {}) {
   return id;
 }
 
+// Arvore do projeto (03/11, docs/specs/mapa-bolas-arvore.md): o nome vem da URL. So letra, numero, espaco e pontuacao
+// simples chegam ao Copiloto, sem barra nem "..", e ele ainda confere se alguma tarefa usa esse projeto.
+function validarProjeto(nome) {
+  const n = String(nome || "").trim();
+  if (!n || n.length > 80 || /[\\/]|\.\./.test(n) || !/^[\p{L}\p{N} ()\-_.,&']+$/u.test(n)) {
+    throw Object.assign(new Error("Projeto invalido."), { status: 400 });
+  }
+  return n;
+}
+
 // Conversa de uma sessao do Claude (Mapa de trabalho, 29/10): o id longo ou o curto, o subagente e a posicao no
 // arquivo de onde ler para tras. Nada fora do formato chega ao Copiloto.
 const SESSAO_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/;
@@ -104,7 +114,10 @@ function createCopilotoCommands({ run = runCli } = {}) {
     excluirTarefa: id => run(["tarefa", "registrar", id, "Descartada pela tela do cockpit.", "--status", "descartada"]),
     // so le a nota: pedido, passos do Registro, agora, meta e os rascunhos pendentes dela
     historiaDaTarefa: id => run(["tarefa", "historia", id]),
+    // so le a nota: as partes (## Partes) ou, sem elas, a historia de cima para baixo (ADR 030 do copiloto)
+    arvoreDaTarefa: id => run(["tarefa", "arvore", id]),
+    arvoreDoProjeto: nome => run(["projeto", "arvore", nome]),
   };
 }
 
-module.exports = { createCopilotoCommands, validarResposta, validarExclusao, validarLeitura, validarRespostaSessao, erroDoComando, envDoCopiloto, runCli };
+module.exports = { createCopilotoCommands, validarResposta, validarExclusao, validarProjeto, validarLeitura, validarRespostaSessao, erroDoComando, envDoCopiloto, runCli };

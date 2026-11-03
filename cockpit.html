@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cockpit da IA</title>
-    <link rel="stylesheet" href="cockpit.css?v=10" />
+    <link rel="stylesheet" href="cockpit.css?v=11" />
     <link rel="stylesheet" href="nav-rail.css?v=1" />
   </head>
   <body class="cockpit" data-coluna="agentes" data-rotinas="fechada">
@@ -56,8 +56,12 @@
             </section>
           </div>
         </section>
-        <section id="aba-mapa" class="aba" hidden>
-          <div class="mapa-caixa"><div id="arvore" class="arvore" role="region" aria-label="Mapa: projetos e tarefas, de cima para baixo"></div></div>
+        <section id="aba-mapa" class="aba" data-vista="mapa" hidden>
+          <div class="mapa-topo" id="mapaTopo" hidden>
+            <button id="voltarMapa" class="botao pequeno secundario" type="button" title="Voltar ao Mapa (Esc)">&larr; Mapa</button>
+            <span class="mapa-trilha" id="mapaTrilha"></span>
+          </div>
+          <div class="mapa-caixa"><svg id="mapa" viewBox="0 0 1100 660" role="img" aria-label="Mapa das tarefas, agrupadas por projeto"></svg><div id="arvoreDecisao" class="arvore-decisao" role="region" aria-label="Árvore: a tarefa e as partes dela, de cima para baixo" aria-live="polite"></div></div>
           <p class="legenda" id="legenda"></p>
         </section>
         <section id="aba-hoje" class="aba" hidden><div id="hoje"></div></section>
@@ -70,7 +74,7 @@
     </aside>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script src="nav-rail.js?v=1"></script>
-    <script src="cockpit-view.js?v=13"></script>
-    <script src="cockpit.js?v=13"></script>
+    <script src="cockpit-view.js?v=14"></script>
+    <script src="cockpit.js?v=14"></script>
   </body>
 </html>
