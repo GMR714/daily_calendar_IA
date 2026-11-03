@@ -184,101 +184,6 @@
     return texto || "Erro desconhecido.";
   }
 
-  // Mapa de bolas (30/10, docs/specs/mapa-historia.md): cada tarefa e uma bola. O raio cresce com os passos do
-  // Registro, com as sessoes vivas e quando ela precisa dele; a pseudotarefa das sessoes sem tarefa fica menor.
-  function raioDaTarefa(t, vivas = 0) {
-    if (t && t.pasta) return Math.min(29, 22 + 2 * (t.sessoes || []).length);
-    const passos = Math.max(0, Number(t && t.passos) || 0);
-    const precisa = t && (t.cor === "atencao" || t.cor === "problema") ? 8 : 0;
-    return Math.min(84, Math.round(30 + 6 * Math.sqrt(passos) + precisa + 5 * Math.min(2, Number(vivas) || 0)));
-  }
-
-  // Cada circulo entra no lugar livre mais perto do centro, encostado num ja posto (36 angulos em volta de cada um):
-  // nada se sobrepoe e os mesmos dados dao sempre o mesmo desenho. `aspecto` > 1 barateia a distancia na horizontal.
-  function empacotar(circulos, folga, aspecto = 1) {
-    const postos = [];
-    const livre = (x, y, r) => postos.every(p => Math.hypot(p.x - x, p.y - y) >= p.r + r + folga - 1e-6);
-    for (const c of circulos) {
-      let melhor = postos.length ? null : { x: 0, y: 0 };
-      for (const p of postos) {
-        const d = p.r + c.r + folga;
-        for (let k = 0; k < 36; k++) {
-          const x = p.x + d * Math.cos((Math.PI * k) / 18), y = p.y + d * Math.sin((Math.PI * k) / 18);
-          const custo = (x / aspecto) ** 2 + y ** 2;
-          if ((!melhor || custo < melhor.custo) && livre(x, y, c.r)) melhor = { x, y, custo };
-        }
-      }
-      if (!melhor) melhor = { x: Math.max(...postos.map(p => p.x + p.r)) + folga + c.r, y: 0 };  // a direita de tudo, sempre livre
-      postos.push({ ...c, x: melhor.x, y: melhor.y });
-    }
-    return postos;
-  }
-
-  // As bolas de cada projeto formam um cacho; os cachos se arrumam do centro para fora (o projeto mais urgente, que vem
-  // primeiro, no meio). Tudo cresce ou encolhe por igual para caber, com uma faixa em cima de cada cacho para o nome
-  // dele; a largura que sobra afasta os cachos na horizontal (afastar nunca faz dois se encostarem).
-  // `itens`: [{ id, grupo, r }], na ordem do Copiloto.
-  const FOLGA_BOLA = 6, FOLGA_CACHO = 10, FAIXA_NOME = 18, ESCALA_MAX = 1.5, AFASTAR_MAX = 1.8;
-  function layoutBolhas(itens, caixa) {
-    const lista = Array.from(itens || []);
-    if (!lista.length) return { bolhas: [], grupos: [] };
-    const nomes = [...new Set(lista.map(i => i.grupo))];
-    const aspecto = caixa.w / caixa.h;
-    const limites = bs => ({ x0: Math.min(...bs.map(b => b.x - b.r)), x1: Math.max(...bs.map(b => b.x + b.r)),
-      y0: Math.min(...bs.map(b => b.y - b.r)), y1: Math.max(...bs.map(b => b.y + b.r)) });
-    const cachos = nomes.map(nome => {
-      // um projeto so: o cacho dele se espalha na largura
-      const bs = empacotar(lista.filter(i => i.grupo === nome).map(i => ({ id: i.id, grupo: nome, r: i.r })), FOLGA_BOLA, nomes.length === 1 ? aspecto : 1);
-      const l = limites(bs), cx = (l.x0 + l.x1) / 2, cy = (l.y0 + l.y1) / 2;
-      return { nome, r: Math.max(...bs.map(b => Math.hypot(b.x - cx, b.y - cy) + b.r)), bolhas: bs.map(b => ({ ...b, x: b.x - cx, y: b.y - cy })) };
-    });
-    const postos = empacotar(cachos.map(c => ({ r: c.r + FAIXA_NOME })), FOLGA_CACHO, aspecto);
-    const montar = f => {
-      const bolhas = [], grupos = [];
-      cachos.forEach((c, i) => {
-        const x = f * postos[i].x, y = postos[i].y;
-        grupos.push({ nome: c.nome, x, y, r: c.r, topo: Math.min(...c.bolhas.map(b => y + b.y - b.r)) });
-        for (const b of c.bolhas) bolhas.push({ ...b, x: x + b.x, y: y + b.y });
-      });
-      return { bolhas, grupos, l: limites(bolhas), y0: Math.min(...grupos.map(g => g.topo)) };
-    };
-    const largura = f => { const l = montar(f).l; return l.x1 - l.x0; };
-    const juntos = montar(1);
-    const s = Math.min(ESCALA_MAX, caixa.w / largura(1), (caixa.h - FAIXA_NOME) / (juntos.l.y1 - juntos.y0));
-    let f = 1;
-    for (let passo = 0.4; passo > 0.01; passo /= 2) if (f + passo <= AFASTAR_MAX && s * largura(f + passo) <= caixa.w) f += passo;
-    const { bolhas, grupos, l, y0 } = montar(f);
-    const dx = caixa.x + (caixa.w - s * (l.x1 - l.x0)) / 2 - s * l.x0;
-    const dy = caixa.y + FAIXA_NOME + (caixa.h - FAIXA_NOME - s * (l.y1 - y0)) / 2 - s * y0;
-    const um = v => Math.round(v * 10) / 10;
-    const ordem = new Map(lista.map((item, i) => [item.id, i]));
-    return {
-      bolhas: bolhas.sort((a, b) => ordem.get(a.id) - ordem.get(b.id)).map(b => ({ id: b.id, grupo: b.grupo, r: um(s * b.r), x: um(dx + s * b.x), y: um(dy + s * b.y) })),
-      grupos: grupos.map(g => ({ nome: g.nome, x: um(dx + s * g.x), y: um(dy + s * g.y), r: um(s * g.r), rotuloY: um(dy + s * g.topo - 6) })),
-    };
-  }
-
-  // O titulo dentro da bola: linhas de ate 1,55 r (6,4 por letra na fonte de 12), tantas quantas cabem em 1,4 r de
-  // altura; o que sobra vira "…". O titulo inteiro fica na dica da bola e na historia.
-  function textoNaBola(titulo, r, { letra = 6.4, altura = 14 } = {}) {
-    const inteiro = String(titulo || "").split(/\s+/).filter(Boolean).join(" ");
-    if (inteiro && inteiro.length <= Math.floor((1.85 * r) / letra)) return [inteiro];  // uma linha so, no meio da bola, onde ela e mais larga
-    const cabe = Math.max(2, Math.floor((1.55 * r) / letra));
-    const maximo = Math.max(1, Math.floor((1.4 * r) / altura));
-    const linhas = [];
-    for (const p of String(titulo || "").split(/\s+/).filter(Boolean)) {
-      const u = linhas.length - 1;
-      if (u >= 0 && linhas[u].length + 1 + p.length <= cabe) linhas[u] += ` ${p}`;
-      else linhas.push(p);
-    }
-    const saida = linhas.slice(0, maximo).map(l => (l.length > cabe ? `${l.slice(0, cabe - 1)}…` : l));
-    if (linhas.length > maximo) {
-      const u = saida[maximo - 1];
-      saida[maximo - 1] = u.endsWith("…") ? u : u.length < cabe ? `${u}…` : `${u.slice(0, cabe - 1)}…`;
-    }
-    return saida;
-  }
-
   // Historia da tarefa (30/10): o cartao do passo mostra as frases inteiras que cabem em `limite`, sem marcacao nem
   // link; uma frase so, maior que o limite, e cortada com "…". O texto inteiro fica na gaveta do passo. A hora que o
   // Registro repete no comeco ("29/10 19h01: ...", "29/10 16:3x · ...") ja esta no topo do cartao e sai.
@@ -330,61 +235,61 @@
     return { ...(Object.prototype.hasOwnProperty.call(AGORA, tipo) ? AGORA[tipo] : { rotulo: "Agora", cor: "sem_sinal" }) };
   }
 
-  // Grafo de um projeto ou de uma tarefa (29/10), em camadas da esquerda para a direita: projeto → tarefas → sessoes →
-  // subsessoes. Cada folha ganha uma faixa de altura e o pai fica no meio dos filhos; o rotulo vai a direita do no.
-  const RAIO_NO = { projeto: 22, tarefa: 12, pasta: 12, sessao: 10, sub: 6, mais: 5 };
-  function grafoDoItem(trabalho, alvo, caixa = { w: 1100, h: 660 }, { maxSub, maxTarefas = 14 } = {}) {
-    if (!trabalho || !alvo) return null;
+  // Mapa em arvore (02/11, docs/specs/mapa-arvore.md): de cima para baixo, projeto → tarefas → historia e sessoes. A
+  // busca e o semaforo escondem as tarefas que nao batem; com busca, o projeto que tem tarefa achada ja vem aberto.
+  const ROTULO_STATUS = { "aguardando-voce": "espera você", aguardando: "espera de fora", bloqueada: "travada", "em-execucao": "trabalhando",
+    pronta: "na fila", nova: "nova", feita: "feita", descartada: "descartada" };
+  function arvoreDoMapa(trabalho, { busca = "", cor = null } = {}) {
+    if (!trabalho) return null;
+    const termo = semAcento(busca).trim();
     const sessoes = trabalho.sessoes || {};
-    const projetos = trabalho.projetos || [];
-    const vistas = new Map();
-    const chave = base => { const n = (vistas.get(base) || 0) + 1; vistas.set(base, n); return n > 1 ? `${base}#${n}` : base; };
-    const mais = (id, n, oque) => ({ chave: chave(`mais:${id}`), tipo: "mais", id, rotulo: `+${n} ${oque}`, cor: "sem_sinal", filhos: [] });
-    const noSessao = (s, limite) => {
-      const sub = s.subsessoes || { total: 0, itens: [] };
-      const mostradas = (sub.itens || []).slice(0, limite);
-      const filhos = mostradas.map(x => ({ chave: chave(`sub:${s.sessao}:${x.id}`), tipo: "sub", id: x.id, sessao: s.sessao,
-        rotulo: x.descricao || x.tipo || x.id, cor: x.cor, dica: x.estado, filhos: [] }));
-      if ((sub.total || 0) > mostradas.length) filhos.push({ ...mais(s.sessao, sub.total - mostradas.length, "subsessões"), sessao: s.sessao });
-      return { chave: chave(`sessao:${s.sessao}`), tipo: "sessao", id: s.sessao, sessao: s.sessao, rotulo: s.nome, cor: s.cor, dica: s.estado, filhos };
-    };
-    const noTarefa = (t, limite) => ({ chave: chave(`tarefa:${t.id}`), tipo: t.pasta ? "pasta" : "tarefa", id: t.id,
-      rotulo: t.pasta ? `Sem tarefa · ${t.titulo}` : t.titulo, cor: t.cor, dica: t.pasta ? "sessões sem tarefa nesta pasta" : `${t.id} · ${t.status}`,
-      filhos: t.sessoes.filter(sid => sessoes[sid]).map(sid => noSessao(sessoes[sid], limite)) });
-    let raiz, titulo;
-    if (alvo.tipo === "projeto") {
-      const p = projetos.find(x => x.nome === alvo.id);
-      if (!p) return null;
-      const corte = p.tarefas.length > maxTarefas ? maxTarefas - 1 : p.tarefas.length;
-      const filhos = p.tarefas.slice(0, corte).map(t => noTarefa(t, maxSub || 3));
-      if (p.tarefas.length > corte) filhos.push(mais(p.nome, p.tarefas.length - corte, "tarefas"));
-      raiz = { chave: chave(`projeto:${p.nome}`), tipo: "projeto", id: p.nome, rotulo: p.nome, cor: p.cor, filhos };
-      titulo = p.nome;
-    } else if (alvo.tipo === "tarefa") {
-      const t = projetos.flatMap(p => p.tarefas).find(x => x.id === alvo.id);
-      if (!t) return null;
-      raiz = noTarefa(t, maxSub || 8);
-      titulo = t.pasta ? `Sem tarefa · ${t.titulo}` : `${t.id} · ${t.titulo}`;
-    } else return null;
-
-    const altura = no => 1 + Math.max(0, ...no.filhos.map(altura));
-    const folhas = no => (no.filhos.length ? no.filhos.reduce((n, f) => n + folhas(f), 0) : 1);
-    const niveis = altura(raiz), margem = 40;
-    const passo = (caixa.h - 2 * margem) / folhas(raiz);
-    const colX = nivel => 60 + (nivel * (caixa.w - 320)) / Math.max(niveis - 1, 1);
-    const nos = [], arestas = [];
-    let vaga = 0;
-    const posicionar = (no, nivel) => {
-      const filhos = no.filhos.map(f => posicionar(f, nivel + 1));
-      const y = filhos.length ? (filhos[0].y + filhos[filhos.length - 1].y) / 2 : margem + (vaga++ + 0.5) * passo;
-      const item = { chave: no.chave, tipo: no.tipo, id: no.id, sessao: no.sessao || null, rotulo: no.rotulo, cor: no.cor, dica: no.dica || "",
-        x: colX(nivel), y, r: Math.min(RAIO_NO[no.tipo], passo / 2), nivel };
-      nos.push(item);
-      for (const f of filhos) arestas.push({ de: item.chave, para: f.chave });
-      return item;
-    };
-    posicionar(raiz, 0);
-    return { titulo, tipo: alvo.tipo, nos, arestas };
+    const projetos = [];
+    for (const p of trabalho.projetos || []) {
+      const peloNome = Boolean(termo) && semAcento(p.nome).includes(termo);
+      const tarefas = [];
+      for (const t of p.tarefas || []) {
+        const achada = !termo || peloNome || [t.id, t.titulo].some(c => semAcento(c).includes(termo));
+        if (!achada || (cor && t.cor !== cor)) continue;
+        const delas = (t.sessoes || []).map(sid => sessoes[sid]).filter(Boolean);
+        const aberta = t.aberta !== false;
+        const precisa = aberta && !t.pasta && (t.cor === "atencao" || t.cor === "problema");
+        const rotulo = ROTULO_STATUS[t.status] || t.status || "";
+        // o selo diz o que ele tem de fazer; o estado ao lado so aparece quando diz mais que o selo
+        const selo = !precisa ? "" : t.cor === "problema" ? "travada" : "precisa de você";
+        const repete = (selo === "precisa de você" && t.status === "aguardando-voce") || (selo === "travada" && t.status === "bloqueada");
+        tarefas.push({ id: t.id, titulo: t.titulo || t.id, status: t.status || "", rotulo, selo, estado: repete ? "" : rotulo,
+          cor: t.cor || "sem_sinal", passos: Number(t.passos) || 0, pasta: Boolean(t.pasta), aberta, precisa,
+          vivas: delas.filter(x => x.viva).length, sessoes: delas, obsidian: t.obsidian || "" });
+      }
+      if (!tarefas.length) continue;
+      projetos.push({ nome: p.nome, cor: p.cor || "sem_sinal", abertas: Number(p.abertas) || 0, sessoes: Number(p.sessoes) || 0,
+        vivas: Number(p.vivas) || 0, semTarefa: p.nome === "Sem tarefa", precisa: tarefas.filter(t => t.precisa).length,
+        pelaBusca: Boolean(termo), tarefas });
+    }
+    return { projetos, total: projetos.reduce((n, p) => n + p.tarefas.length, 0) };
+  }
+  // Um projeto, uma tarefa e uma sessao abertos por vez (02/11): abrir outro fecha o anterior, para caber em 1536x730.
+  const FECHADO = { projeto: null, tarefa: null, sessao: null };
+  function alternarNoMapa(aberto, alvo) {
+    const a = { ...FECHADO, ...(aberto || {}) };
+    if (!alvo) return a;
+    if (alvo.tipo === "projeto") return a.projeto === alvo.id ? { ...FECHADO } : { ...FECHADO, projeto: alvo.id };
+    if (alvo.tipo === "tarefa") return a.tarefa === alvo.id ? { ...a, tarefa: null, sessao: null } : { projeto: alvo.projeto || a.projeto, tarefa: alvo.id, sessao: null };
+    if (alvo.tipo === "sessao") return { ...a, sessao: a.sessao === alvo.id ? null : alvo.id };
+    return a;
+  }
+  // Esc fecha o que abriu por ultimo: a sessao, depois a tarefa, depois o projeto; null quando nada estava aberto.
+  function fecharNoMapa(aberto) {
+    const a = { ...FECHADO, ...(aberto || {}) };
+    if (a.sessao) return { ...a, sessao: null };
+    if (a.tarefa) return { ...a, tarefa: null };
+    if (a.projeto) return { ...FECHADO };
+    return null;
+  }
+  // "Ver a historia da tarefa" (gaveta): o projeto e a tarefa abertos; null se ela nao esta no Mapa.
+  function abrirNoMapa(trabalho, id) {
+    const p = ((trabalho && trabalho.projetos) || []).find(x => (x.tarefas || []).some(t => t.id === id));
+    return p ? { projeto: p.nome, tarefa: id, sessao: null } : null;
   }
 
   // Ferramentas seguidas viram um item so na conversa (29/10): 6 em cada 10 linhas de uma sessao sao ferramenta.
@@ -460,5 +365,5 @@
   }
 
   return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
-    raioDaTarefa, layoutBolhas, textoNaBola, resumoDoPasso, fatiaDaHistoria, sessoesNosPassos, agoraDaHistoria, grafoDoItem, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
+    resumoDoPasso, fatiaDaHistoria, sessoesNosPassos, agoraDaHistoria, arvoreDoMapa, alternarNoMapa, fecharNoMapa, abrirNoMapa, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });

@@ -147,13 +147,13 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   const html = await (await fetch(base + "/cockpit")).text();
   assert.match(html, /<button id="rodarAgora"/);
   assert.match(html, /<button id="abrirMestra"/);  // a janela do chat que manda nas outras sessoes (ADR 022 do copiloto)
-  assert.match(html, /<button id="voltarMapa"/);  // o grafo de um projeto ou tarefa volta ao Mapa
   assert.match(html, /<button id="abrirRotinas"/);  // Rotinas recolhida vira uma faixa que abre a coluna
   assert.match(html, /<button id="recolherRotinas"/);
-  assert.match(html, /<div id="historia"/);  // o clique numa bola troca as bolas pela historia da tarefa
-  assert.match(html, /cockpit\.js\?v=12/);
-  assert.match(html, /cockpit-view\.js\?v=12/);
-  assert.match(html, /cockpit\.css\?v=9/);
+  assert.match(html, /<div id="arvore" class="arvore"/);  // o Mapa e uma arvore de cima para baixo (docs/specs/mapa-arvore.md)
+  assert.doesNotMatch(html, /<svg id="mapa"|id="voltarMapa"|id="historia"/);  // sairam as bolas, o grafo e os cartoes
+  assert.match(html, /cockpit\.js\?v=13/);
+  assert.match(html, /cockpit-view\.js\?v=13/);
+  assert.match(html, /cockpit\.css\?v=10/);
 });
 
 // ------------------------------------------------------------------ a resposta pede o ciclo (30/10)

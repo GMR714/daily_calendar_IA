@@ -6,6 +6,9 @@ data: 2026-10-29
 
 # Mapa de trabalho: projeto → tarefa → sessão → subsessão
 
+> Em 02/11, o grafo da esquerda para a direita deu lugar à árvore de cima para baixo ([mapa-arvore](mapa-arvore.md)):
+> projeto → tarefa → sessão → subsessão continua, agora abrindo embaixo de cada linha.
+
 ## Pedido original
 
 > "isso nao esta aqui so para bonito quero que cada bola seja uma tarefa/projeto e que quando eu clicar nela abra um grafo

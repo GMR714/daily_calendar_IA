@@ -158,79 +158,8 @@ const TRABALHO = {
   ],
   sessoes: { s1: sessaoFalsa("s1", "Desafio do Marios", subs(12)), s2: sessaoFalsa("s2", "transcricao"), s3: sessaoFalsa("s3", "tasks jornada", subs(2)) },
 };
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-// ------------------------------------------------------------------ Mapa de bolas e historia da tarefa (30/10)
-// 18 tarefas abertas em 5 projetos e 3 pastas com sessoes sem tarefa, como em 30/10
-function tarefasDoMapa() {
-  const lista = [];
-  let n = 0;
-  for (const [grupo, k] of [["setup-com-prova", 6], ["Homologação", 4], ["copiloto", 4], ["Jornada", 2], ["Hito", 2]]) {
-    for (let i = 0; i < k; i++, n++) lista.push({ id: `T-202610${10 + n}-01`, grupo, r: V.raioDaTarefa({ passos: (n * 7) % 55, cor: n % 3 ? "atencao" : "problema" }, n % 2) });
-  }
-  for (const pasta of ["copiloto", "gabri", "e2e"]) lista.push({ id: `pasta:${pasta}`, grupo: "Sem tarefa", r: V.raioDaTarefa({ pasta: true, sessoes: ["a", "b"] }) });
-  return lista;
-}
-const MAPA = { x: 16, y: 12, w: 1618, h: 636 };  // o quadro do Mapa em 1536x730
-
-function conferirBolhas({ bolhas, grupos }, caixa) {
-  for (const b of bolhas) {
-    assert.ok(b.x - b.r >= caixa.x - 0.5 && b.x + b.r <= caixa.x + caixa.w + 0.5 && b.y - b.r >= caixa.y - 0.5 && b.y + b.r <= caixa.y + caixa.h + 0.5, `${b.id} fora da area`);
-    for (const o of bolhas) if (o !== b) assert.ok(dist(b, o) >= b.r + o.r - 0.5, `${b.id} encosta em ${o.id}`);
-    const g = grupos.find(x => x.nome === b.grupo);
-    assert.ok(dist(b, g) + b.r <= g.r + 0.5, `${b.id} fora do cacho de ${g.nome}`);
-  }
-  for (const g of grupos) {
-    assert.ok(g.rotuloY - 12 >= caixa.y - 0.5, `nome de ${g.nome} fora da area`);
-    for (const o of grupos) if (o !== g) assert.ok(dist(g, o) >= g.r + o.r - 0.5, `${g.nome} invade ${o.nome}`);
-  }
-}
-
-test("mapa de bolas: o raio cresce com os passos, com as sessoes vivas e quando precisa dele, ate um teto", () => {
-  const base = V.raioDaTarefa({ passos: 0, cor: "bem" }, 0);
-  assert.ok(V.raioDaTarefa({ passos: 9, cor: "bem" }, 0) > base);
-  assert.ok(V.raioDaTarefa({ passos: 0, cor: "bem" }, 2) > base);
-  assert.ok(V.raioDaTarefa({ passos: 0, cor: "atencao" }, 0) > base);
-  assert.ok(V.raioDaTarefa({ passos: 0, cor: "problema" }, 0) > base);
-  assert.equal(V.raioDaTarefa({ passos: 500, cor: "problema" }, 9), 84);
-  assert.equal(V.raioDaTarefa({ cor: "bem" }), base);  // Copiloto antigo, sem a contagem de passos
-  assert.ok(V.raioDaTarefa({ pasta: true, sessoes: ["a"] }) < base);
-});
-
-test("mapa de bolas: cada projeto vira um cacho; nada se sobrepoe nem sai da area", () => {
-  const r = V.layoutBolhas(tarefasDoMapa(), MAPA);
-  assert.equal(r.bolhas.length, 21);
-  assert.deepEqual(r.grupos.map(g => g.nome), ["setup-com-prova", "Homologação", "copiloto", "Jornada", "Hito", "Sem tarefa"]);
-  conferirBolhas(r, MAPA);
-  const xs = r.bolhas.map(b => b.x);
-  assert.ok(Math.max(...xs) - Math.min(...xs) > 0.5 * MAPA.w, "os cachos se espalham na largura da tela");
-  for (const outra of [{ x: 10, y: 10, w: 1080, h: 640 }, { x: 0, y: 0, w: 600, h: 400 }]) conferirBolhas(V.layoutBolhas(tarefasDoMapa(), outra), outra);
-});
-
-test("mapa de bolas: muitas tarefas encolhem para caber; poucas nao viram bolas gigantes", () => {
-  conferirBolhas(V.layoutBolhas(Array.from({ length: 60 }, (_, i) => ({ id: `T-${i}`, grupo: `p${i % 7}`, r: 60 })), MAPA), MAPA);
-  const uma = V.layoutBolhas([{ id: "T-1", grupo: "copiloto", r: 40 }], MAPA);
-  conferirBolhas(uma, MAPA);
-  assert.ok(uma.bolhas[0].r <= 60, String(uma.bolhas[0].r));
-});
-
-test("mapa de bolas: os mesmos dados dao o mesmo desenho, para a releitura de 30 s nao mexer nas bolas", () => {
-  assert.deepEqual(V.layoutBolhas(tarefasDoMapa(), MAPA), V.layoutBolhas(tarefasDoMapa(), MAPA));
-  assert.deepEqual(V.layoutBolhas([], MAPA), { bolhas: [], grupos: [] });
-});
-
-test("mapa de bolas: o titulo cabe dentro da bola, e o que sobra vira '…'", () => {
-  assert.deepEqual(V.textoNaBola("Pôr o apelido", 60), ["Pôr o apelido"]);
-  const linhas = V.textoNaBola("Responder o formulário de baseline do recrutamento com os dados da planilha que o Xande mandou ontem", 44);
-  assert.ok(linhas.length >= 2 && linhas.length <= Math.floor((1.4 * 44) / 14), JSON.stringify(linhas));
-  assert.ok(linhas.every(l => l.length <= Math.floor((1.55 * 44) / 6.4)), JSON.stringify(linhas));
-  assert.ok(linhas[linhas.length - 1].endsWith("…"));
-  assert.ok(V.textoNaBola("Supercalifragilisticexpialidocious", 30)[0].endsWith("…"));
-  assert.deepEqual(V.textoNaBola("", 40), []);
-  // uma linha so fica no meio da bola, onde ela e mais larga: o nome curto da pasta cabe inteiro
-  assert.deepEqual(V.textoNaBola("copiloto", 26, { letra: 5.6, altura: 12 }), ["copiloto"]);
-});
-
+// ------------------------------------------------------------------ Historia da tarefa (30/10)
 test("historia: o cartao do passo mostra as frases inteiras que cabem, sem marcacao nem link", () => {
   assert.equal(V.resumoDoPasso("Rascunho **R-69** na thread. O resto fica na gaveta.", 30), "Rascunho R-69 na thread.");
   assert.equal(V.resumoDoPasso("Rascunho **R-69** na thread. O resto fica na gaveta."), "Rascunho R-69 na thread. O resto fica na gaveta.");
@@ -275,47 +204,81 @@ test("historia: o agora diz se precisa dele, se travou ou quem cuida", () => {
   assert.deepEqual(V.agoraDaHistoria(undefined), { rotulo: "Agora", cor: "sem_sinal" });
 });
 
-function conferirGrafo(g, caixa) {
-  const chaves = new Set(g.nos.map(n => n.chave));
-  assert.equal(chaves.size, g.nos.length, "chave repetida");
-  for (const a of g.arestas) assert.ok(chaves.has(a.de) && chaves.has(a.para), `${a.de} -> ${a.para}`);
-  for (const n of g.nos) assert.ok(n.x - n.r >= 0 && n.x + n.r <= caixa.w && n.y - n.r >= 0 && n.y + n.r <= caixa.h, n.chave);
-  const colunas = {};
-  for (const n of g.nos) (colunas[n.x] ||= []).push(n);
-  for (const col of Object.values(colunas)) {
-    col.sort((a, b) => a.y - b.y);
-    for (let i = 1; i < col.length; i++) assert.ok(col[i].y - col[i - 1].y >= col[i].r + col[i - 1].r, `${col[i - 1].chave} encosta em ${col[i].chave}`);
-  }
-}
-
-test("grafo do projeto: tarefas, sessoes e ate 3 subsessoes por sessao, com '+N' no resto", () => {
-  const caixa = { w: 1100, h: 660 };
-  const g = V.grafoDoItem(TRABALHO, { tipo: "projeto", id: "setup-com-prova" }, caixa);
-  conferirGrafo(g, caixa);
-  assert.equal(g.titulo, "setup-com-prova");
-  const tipos = g.nos.reduce((m, n) => ({ ...m, [n.tipo]: (m[n.tipo] || 0) + 1 }), {});
-  assert.deepEqual(tipos, { projeto: 1, tarefa: 12, sessao: 1, sub: 3, mais: 1 });
-  assert.ok(g.arestas.some(a => a.de === "tarefa:T-20261010-01" && a.para === "sessao:s1"));
-  assert.equal(g.nos.find(n => n.tipo === "mais").rotulo, "+9 subsessões");
-  assert.equal(g.nos.find(n => n.tipo === "sub").sessao, "s1");
+// ------------------------------------------------------------------ Mapa em arvore (02/11, docs/specs/mapa-arvore.md)
+test("mapa em arvore: projetos de cima para baixo, com as tarefas, as contagens e o que precisa dele", () => {
+  const a = V.arvoreDoMapa(TRABALHO);
+  assert.deepEqual(a.projetos.map(p => p.nome), ["setup-com-prova", "copiloto", "Sem tarefa"]);
+  const [setup, copiloto, sem] = a.projetos;
+  assert.equal(setup.tarefas.length, 12);
+  assert.equal(setup.precisa, 12);
+  assert.equal(copiloto.precisa, 2);
+  assert.equal(setup.tarefas[0].sessoes[0].nome, "Desafio do Marios");
+  assert.equal(setup.tarefas[0].rotulo, "espera você");
+  assert.equal(sem.semTarefa, true);
+  assert.equal(sem.tarefas[0].pasta, true);
+  assert.deepEqual(sem.tarefas[0].sessoes.map(x => x.nome), ["transcricao", "tasks jornada"]);
+  assert.equal(a.total, 15);
+  assert.equal(V.arvoreDoMapa(null), null);
 });
 
-test("grafo da tarefa: as sessoes dela e ate 8 subsessoes; 'Sem tarefa' mostra as pastas", () => {
-  const caixa = { w: 1100, h: 660 };
-  const g = V.grafoDoItem(TRABALHO, { tipo: "tarefa", id: "T-20261010-01" }, caixa);
-  conferirGrafo(g, caixa);
-  assert.equal(g.nos.filter(n => n.tipo === "sub").length, 8);
-  assert.equal(g.nos.find(n => n.tipo === "mais").rotulo, "+4 subsessões");
-  const sem = V.grafoDoItem(TRABALHO, { tipo: "projeto", id: "Sem tarefa" }, caixa);
-  conferirGrafo(sem, caixa);
-  assert.deepEqual(sem.nos.filter(n => n.tipo === "pasta").map(n => n.rotulo), ["Sem tarefa · gabri"]);
-  assert.deepEqual(sem.nos.filter(n => n.tipo === "sessao").map(n => n.rotulo).sort(), ["tasks jornada", "transcricao"]);
+test("mapa em arvore: o estado vira um rotulo que ele entende", () => {
+  const de = status => V.arvoreDoMapa({ projetos: [{ nome: "p", tarefas: [tarefa("T-20261101-01", "bem", [], { status })] }], sessoes: {} }).projetos[0].tarefas[0].rotulo;
+  assert.equal(de("aguardando"), "espera de fora");
+  assert.equal(de("bloqueada"), "travada");
+  assert.equal(de("em-execucao"), "trabalhando");
+  assert.equal(de("pronta"), "na fila");
+  assert.equal(de("coisa-nova"), "coisa-nova");
 });
 
-test("grafo: alvo que nao existe (ou sem dados) nao desenha nada", () => {
-  assert.equal(V.grafoDoItem(TRABALHO, { tipo: "projeto", id: "nao existe" }), null);
-  assert.equal(V.grafoDoItem(TRABALHO, { tipo: "tarefa", id: "T-1" }), null);
-  assert.equal(V.grafoDoItem(null, { tipo: "projeto", id: "copiloto" }), null);
+test("mapa em arvore: o selo diz o que ele tem de fazer, e a linha nao repete o que o selo ja disse", () => {
+  const de = (cor, status) => { const t = V.arvoreDoMapa({ projetos: [{ nome: "p", tarefas: [tarefa("T-20261101-01", cor, [], { status })] }], sessoes: {} }).projetos[0].tarefas[0]; return [t.selo, t.estado]; };
+  assert.deepEqual(de("atencao", "aguardando-voce"), ["precisa de você", ""]);  // "espera você" seria o mesmo recado
+  assert.deepEqual(de("atencao", "bloqueada"), ["precisa de você", "travada"]);  // aqui o estado diz mais
+  assert.deepEqual(de("problema", "bloqueada"), ["travada", ""]);
+  assert.deepEqual(de("problema", "em-execucao"), ["travada", "trabalhando"]);
+  assert.deepEqual(de("bem", "aguardando"), ["", "espera de fora"]);
+  const pasta = V.arvoreDoMapa({ projetos: [{ nome: "Sem tarefa", tarefas: [tarefa("pasta-x", "atencao", [], { pasta: true })] }], sessoes: {} }).projetos[0].tarefas[0];
+  assert.equal(pasta.selo, "");  // a pasta de sessoes sem tarefa nao pede nada a ele
+});
+
+test("mapa em arvore: a busca e o semaforo escondem o que nao bate, e o projeto achado ja vem aberto", () => {
+  const busca = V.arvoreDoMapa(TRABALHO, { busca: "T-20261023" });
+  assert.deepEqual(busca.projetos.map(p => [p.nome, p.tarefas.map(t => t.id), p.pelaBusca]), [["copiloto", ["T-20261023-11"], true]]);
+  const projeto = V.arvoreDoMapa(TRABALHO, { busca: "COPILÓTO" });  // sem acento e sem caixa; o nome do projeto traz todas
+  assert.deepEqual(projeto.projetos.map(p => [p.nome, p.tarefas.length]), [["copiloto", 2]]);
+  const cor = V.arvoreDoMapa(TRABALHO, { cor: "atencao" });
+  assert.deepEqual(cor.projetos.map(p => [p.nome, p.tarefas.length, p.pelaBusca]), [["setup-com-prova", 1, false], ["copiloto", 2, false]]);
+  assert.deepEqual(V.arvoreDoMapa(TRABALHO, { busca: "nada disso" }).projetos, []);
+});
+
+test("mapa em arvore: abre um projeto, uma tarefa e uma sessao por vez; o segundo clique fecha", () => {
+  let a = V.alternarNoMapa({}, { tipo: "projeto", id: "copiloto" });
+  assert.deepEqual(a, { projeto: "copiloto", tarefa: null, sessao: null });
+  a = V.alternarNoMapa(a, { tipo: "tarefa", id: "T-20261023-11", projeto: "copiloto" });
+  assert.deepEqual(a, { projeto: "copiloto", tarefa: "T-20261023-11", sessao: null });
+  a = V.alternarNoMapa(a, { tipo: "sessao", id: "s1" });
+  assert.equal(a.sessao, "s1");
+  assert.deepEqual(V.alternarNoMapa(a, { tipo: "sessao", id: "s1" }).sessao, null);
+  assert.deepEqual(V.alternarNoMapa(a, { tipo: "tarefa", id: "T-20261023-11" }), { projeto: "copiloto", tarefa: null, sessao: null });
+  assert.deepEqual(V.alternarNoMapa(a, { tipo: "tarefa", id: "T-20261026-03", projeto: "copiloto" }), { projeto: "copiloto", tarefa: "T-20261026-03", sessao: null });
+  assert.deepEqual(V.alternarNoMapa(a, { tipo: "projeto", id: "setup-com-prova" }), { projeto: "setup-com-prova", tarefa: null, sessao: null });
+  assert.deepEqual(V.alternarNoMapa(a, { tipo: "projeto", id: "copiloto" }), { projeto: null, tarefa: null, sessao: null });
+  assert.deepEqual(V.alternarNoMapa(undefined, null), { projeto: null, tarefa: null, sessao: null });
+});
+
+test("mapa em arvore: Esc fecha o que abriu por ultimo; sem nada aberto, nao faz nada", () => {
+  const a = { projeto: "copiloto", tarefa: "T-20261023-11", sessao: "s1" };
+  assert.deepEqual(V.fecharNoMapa(a), { projeto: "copiloto", tarefa: "T-20261023-11", sessao: null });
+  assert.deepEqual(V.fecharNoMapa({ ...a, sessao: null }), { projeto: "copiloto", tarefa: null, sessao: null });
+  assert.deepEqual(V.fecharNoMapa({ projeto: "copiloto", tarefa: null, sessao: null }), { projeto: null, tarefa: null, sessao: null });
+  assert.equal(V.fecharNoMapa({}), null);
+  assert.equal(V.fecharNoMapa(undefined), null);
+});
+
+test("mapa em arvore: 'ver a historia' abre o projeto e a tarefa dela", () => {
+  assert.deepEqual(V.abrirNoMapa(TRABALHO, "T-20261026-03"), { projeto: "copiloto", tarefa: "T-20261026-03", sessao: null });
+  assert.equal(V.abrirNoMapa(TRABALHO, "T-1"), null);
+  assert.equal(V.abrirNoMapa(null, "T-20261026-03"), null);
 });
 
 test("conversa: ferramentas seguidas viram um item so; o resto fica como esta", () => {
