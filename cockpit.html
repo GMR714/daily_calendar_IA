@@ -4,20 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cockpit da IA</title>
-    <link rel="stylesheet" href="cockpit.css?v=11" />
+    <link rel="stylesheet" href="cockpit.css?v=12" />
     <link rel="stylesheet" href="nav-rail.css?v=1" />
   </head>
   <body class="cockpit" data-coluna="agentes" data-rotinas="fechada">
     <nav id="rail"></nav>
     <div class="tela">
+      <!-- O visual do painel do Bill (docs/specs/cockpit-billverso.md): topo, faixa de numeros, faixa das acoes e o Mapa -->
       <header class="topo">
         <div class="topo-esq">
-          <h1>Cockpit da IA</h1>
+          <h1 class="marca"><span class="losango" aria-hidden="true">&#9671;</span> Cockpit</h1>
           <nav class="abas" role="tablist" aria-label="Vistas">
-            <button role="tab" type="button" data-aba="painel">Painel</button>
-            <button role="tab" type="button" data-aba="mapa">Mapa</button>
-            <button role="tab" type="button" data-aba="hoje">Hoje</button>
+            <button role="tab" type="button" data-aba="mapa" title="Os agentes em times, as prioridades, a fila e os saldos">Mapa</button>
+            <button role="tab" type="button" data-aba="pulso" title="As sessões, a fila Você e as rotinas, linha a linha">Pulso</button>
+            <button role="tab" type="button" data-aba="tarefas" title="As tarefas em bolas por projeto; o clique abre a árvore da tarefa">Tarefas</button>
+            <button role="tab" type="button" data-aba="saldos" title="Quanto ainda cabe na conta do Claude e na máquina, e o gasto de hoje">Saldos</button>
+            <button role="tab" type="button" data-aba="ideias" title="O BACKLOG do copiloto: o que ainda não virou trabalho">Ideias</button>
+            <button role="tab" type="button" data-aba="entregas" title="Entregue não é aceito: aceite ou reprove o que os workers entregaram">Entregas</button>
+            <a class="aba-link" href="/" title="A agenda: a parte pessoal">Pessoal</a>
           </nav>
+          <a class="link-externo" id="abrirExcalidraw" href="obsidian://search?vault=Obsidian%20Vault&amp;query=path%3A%22Seazone%2FDesenhos%22" title="Os desenhos do copiloto no Excalidraw do Obsidian">Excalidraw &#8599;</a>
         </div>
         <div class="topo-dir">
           <div class="vivo" id="vivo" title="A tela se atualiza sozinha a cada 30 s"><span class="pulso" aria-hidden="true"></span><span id="vivoTexto">carregando&hellip;</span></div>
@@ -27,11 +33,60 @@
           <button id="rodarAgora" class="botao" type="button" title="Pede um ciclo do Copiloto agora: ele espera a vez e nunca derruba o que está rodando">Rodar agora</button>
         </div>
       </header>
-      <section class="kpis" id="kpis" aria-label="Resumo"></section>
+      <section class="kpis" id="kpis" aria-label="Números de hoje"></section>
+      <p class="faixa-acoes" id="faixaAcoes"><b>Só neste computador</b> &middot; responder, aceitar, reprovar e prioridades gravam no copiloto</p>
       <div id="aviso" class="aviso" role="alert" hidden></div>
       <div id="alertas" class="estado-leitura" aria-live="polite"></div>
       <main class="conteudo">
-        <section id="aba-painel" class="aba">
+        <section id="aba-mapa" class="aba" hidden>
+          <div class="mapa-grade">
+            <aside class="mapa-lado mapa-esq" aria-label="Prioridades e times">
+              <section class="cartao-painel" aria-labelledby="t-prioridades">
+                <h2 class="rotulo-painel" id="t-prioridades">Prioridades</h2>
+                <form id="formPrioridade" class="prioridade-nova">
+                  <input id="novaPrioridade" type="text" maxlength="200" placeholder="nova prioridade" autocomplete="off" aria-label="Nova prioridade" />
+                  <button class="botao pequeno secundario" type="submit">Adicionar</button>
+                </form>
+                <ol id="prioridades" class="prioridades"></ol>
+              </section>
+              <h2 class="rotulo-painel fora">Times</h2>
+              <div id="timesLista" class="times-lista"></div>
+            </aside>
+            <section class="cartao-painel mapa-centro" id="quadroMapa" aria-label="Mapa dos agentes">
+              <div class="mapa-barra">
+                <div class="legenda-times" id="legendaTimes"></div>
+                <div class="vistas-mapa" role="group" aria-label="O que o mapa mostra">
+                  <button type="button" data-vista="padrao">Padrão</button>
+                  <button type="button" data-vista="observa" title="Mostra também quem confere o trabalho de quem: Verificadora, Revisora e Ronda">+ quem observa</button>
+                  <button type="button" disabled title="Ainda não: quanto passou por cada ligação no dia (task no copiloto)">+ tráfego 24 h</button>
+                </div>
+                <div class="zoom" role="group" aria-label="Zoom do mapa">
+                  <button type="button" data-zoom="mais" title="Aproximar">+</button>
+                  <button type="button" data-zoom="menos" title="Afastar">&minus;</button>
+                  <button type="button" data-zoom="caber" title="Caber no quadro">&#10530;</button>
+                  <button type="button" data-zoom="tela" title="Tela cheia">&#9974;</button>
+                </div>
+              </div>
+              <p class="mapa-nota" id="mapaNota" hidden></p>
+              <div class="mapa-rolagem" id="mapaRolagem"><svg id="mapaTimes" role="img" aria-label="Os agentes em times: quem delega a quem, quem escala a você e o que as rotinas acordam"></svg></div>
+            </section>
+            <aside class="mapa-lado mapa-dir" aria-label="Fila, saldos e o que aconteceu">
+              <section class="cartao-painel" aria-labelledby="t-fila">
+                <h2 class="rotulo-painel" id="t-fila">Fila</h2>
+                <div id="filaGrade" class="fila-grade"></div>
+              </section>
+              <section class="cartao-painel" aria-labelledby="t-saldos">
+                <header class="cartao-cabeca"><h2 class="rotulo-painel" id="t-saldos">Saldos (% disponível)</h2><button class="link" type="button" id="verContas">Ver contas &rarr;</button></header>
+                <div id="saldosLista" class="saldos-lista"></div>
+              </section>
+              <section class="cartao-painel" aria-labelledby="t-aconteceu">
+                <h2 class="rotulo-painel" id="t-aconteceu">Aconteceu</h2>
+                <ol id="aconteceu" class="aconteceu-lista"></ol>
+              </section>
+            </aside>
+          </div>
+        </section>
+        <section id="aba-pulso" class="aba" hidden>
           <div class="colunas-abas segmentos" role="group" aria-label="Coluna">
             <button type="button" data-coluna="agentes">Agentes</button>
             <button type="button" data-coluna="voce">Voc&ecirc;</button>
@@ -56,15 +111,21 @@
             </section>
           </div>
         </section>
-        <section id="aba-mapa" class="aba" data-vista="mapa" hidden>
+        <section id="aba-tarefas" class="aba" data-vista="mapa" hidden>
           <div class="mapa-topo" id="mapaTopo" hidden>
-            <button id="voltarMapa" class="botao pequeno secundario" type="button" title="Voltar ao Mapa (Esc)">&larr; Mapa</button>
+            <button id="voltarMapa" class="botao pequeno secundario" type="button" title="Voltar às bolas (Esc)">&larr; Tarefas</button>
             <span class="mapa-trilha" id="mapaTrilha"></span>
           </div>
           <div class="mapa-caixa"><svg id="mapa" viewBox="0 0 1100 660" role="img" aria-label="Mapa das tarefas, agrupadas por projeto"></svg><div id="arvoreDecisao" class="arvore-decisao" role="region" aria-label="Árvore: a tarefa e as partes dela, de cima para baixo" aria-live="polite"></div></div>
           <p class="legenda" id="legenda"></p>
         </section>
-        <section id="aba-hoje" class="aba" hidden><div id="hoje"></div></section>
+        <section id="aba-saldos" class="aba rola" hidden>
+          <div id="saldosGrade" class="saldos-grade"></div>
+          <h2 class="rotulo-painel secao">Hoje, por sessão</h2>
+          <div id="hoje"></div>
+        </section>
+        <section id="aba-ideias" class="aba rola" hidden><div id="ideias"></div></section>
+        <section id="aba-entregas" class="aba rola" hidden><div id="entregas"></div></section>
       </main>
     </div>
     <div id="veu" class="veu" hidden></div>
@@ -74,7 +135,8 @@
     </aside>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script src="nav-rail.js?v=1"></script>
-    <script src="cockpit-view.js?v=14"></script>
-    <script src="cockpit.js?v=14"></script>
+    <script src="cockpit-view.js?v=15"></script>
+    <script src="cockpit-painel.js?v=1"></script>
+    <script src="cockpit.js?v=15"></script>
   </body>
 </html>

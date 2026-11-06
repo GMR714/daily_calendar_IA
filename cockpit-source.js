@@ -49,9 +49,11 @@ function createCockpitSource({ run = () => runCopiloto(), ttlMs = 45000, now = (
   let emAndamento = null;
   let proxima = null;
   function ler() {  // uma leitura do Copiloto; quem pede no meio dela recebe a mesma
-    emAndamento ||= Promise.resolve()
+    if (emAndamento) return emAndamento;
+    const inicio = now();  // a tela compara com o que ele acabou de mudar: a leitura que comecou antes nao viu a mudanca
+    emAndamento = Promise.resolve()
       .then(run)
-      .then(dados => { cache = { dados, em: now() }; erro = null; return cache; },
+      .then(dados => { cache = { dados, em: now(), inicio }; erro = null; return cache; },
         error => { erro = friendlyError(error); throw Object.assign(new Error(erro), { status: 503 }); })
       .finally(() => { emAndamento = null; });
     return emAndamento;
@@ -63,7 +65,8 @@ function createCockpitSource({ run = () => runCopiloto(), ttlMs = 45000, now = (
     return (proxima ||= emAndamento.catch(() => {}).then(() => { proxima = null; return ler(); }));
   }
   function view() {
-    return { dados: cache.dados, lidoEm: new Date(cache.em).toISOString(), idadeSegundos: Math.round((now() - cache.em) / 1000),
+    return { dados: cache.dados, lidoEm: new Date(cache.em).toISOString(), iniciadoEm: new Date(cache.inicio).toISOString(),
+      idadeSegundos: Math.round((now() - cache.em) / 1000),
       atualizando: Boolean(emAndamento), erro };
   }
   async function get({ force = false } = {}) {

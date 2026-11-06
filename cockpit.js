@@ -8,6 +8,17 @@
   const ZONA = { bem: "tranquilo", atencao: "grande; vale um /compact quando fechar a etapa", problema: "acima de ~500 mil, onde o Claude começa a errar mais", sem_sinal: "sem dado" };
   const TIPOS = ["dar ok", "decidir", "aguardando terceiros", "travada"];
   const NOME_TIPO = { "dar ok": "Dar ok", decidir: "Decidir", "aguardando terceiros": "Terceiros", travada: "Travadas" };
+  // As abas na ordem do painel do Bill (docs/specs/cockpit-billverso.md). O Painel virou o Pulso, o Mapa de bolas virou
+  // Tarefas e o Hoje foi para Saldos: o endereco antigo (#painel, #hoje) ainda abre o lugar certo.
+  const P = window.CockpitPainel;
+  const ABAS = ["mapa", "pulso", "tarefas", "saldos", "ideias", "entregas"];
+  const ABA_ANTIGA = { painel: "pulso", hoje: "saldos" };
+  const NOME_TIME = { comando: "Comando", fabrica: "Fábrica", governanca: "Governança", rotinas: "Rotinas", outras: "Outras sessões" };
+  const FUNCAO = {
+    verificadora: "Confere cada tarefa feita contra a prova antes de ela contar como entregue. Quem entregou não aceita: ela ou você.",
+    revisora: "Confere toda mensagem em seu nome antes de sair: o fato na fonte, se ainda vale, sem prometer prazo e no tom combinado.",
+    ronda: "O vigia: encerra a sessão de tarefa fechada, destrava o worker parado e roda de novo a rotina que falhou."
+  };
 
   const ui = lerPreferencias();
   let resposta = null;
@@ -25,14 +36,20 @@
   const resumos = new Map();  // sessao → { texto, fonte, aviso, carregando, erro } do Ouvir
   let falando = null;  // sessao cujo resumo a voz esta lendo
   let ditado = null;  // { sessao, rec } enquanto o microfone ouve
+  // O que ele acabou de mudar pela tela vale sobre a leitura do Copiloto que comecou antes da mudanca (P.valeOLocal)
+  let prioridadesLocais = null;  // { lista, em }
+  const entregasTratadas = new Map();  // id → { em, acao }: o card some na hora e volta se a leitura nova ainda o trouxer
   const $ = id => document.getElementById(id);
 
   function lerPreferencias() {
-    const padrao = { aba: "painel", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes", rotinas: "fechada" };
+    const padrao = { aba: "mapa", cor: null, segmento: null, tipoFila: null, frente: null, coluna: "agentes", rotinas: "fechada", vistaMapa: "padrao", zoom: 1, time: null };
     let lido = { ...padrao };
     try { lido = { ...padrao, ...JSON.parse(localStorage.getItem("cockpit:ui") || "{}") }; } catch { /* sem armazenamento */ }
-    const aba = location.hash.slice(1);  // /cockpit#mapa abre direto no mapa
-    if (["painel", "mapa", "hoje"].includes(aba)) lido.aba = aba;
+    const deHash = location.hash.slice(1);  // /cockpit#entregas abre direto nas entregas
+    const aba = ABA_ANTIGA[deHash] || deHash;
+    if (ABAS.includes(aba)) lido.aba = aba;
+    else lido.aba = ABA_ANTIGA[lido.aba] || (ABAS.includes(lido.aba) ? lido.aba : "mapa");
+    if (!(Number(lido.zoom) > 0)) lido.zoom = 1;
     return { ...lido, busca: "" };
   }
   function salvarPreferencias() {
@@ -156,16 +173,18 @@
   // Excluir tarefa (29/10): a nota fica no vault com status descartada e o card sai da fila e do Mapa na hora.
   // O primeiro clique so pede confirmacao, como no Descartar e no Parar.
   let excluidas = new Set();  // tarefas excluidas que a leitura do Copiloto ainda nao mostra fechadas
-  function botaoComConfirmacao(classe, rotulo, title, acao) {
-    return h("button", { class: `${classe} perigo`, type: "button", "data-rotulo": rotulo, title, onclick: ev => {
+  // O primeiro clique so pede confirmacao; o segundo, em ate 4 s, faz. `confirmar` e o texto do botao armado.
+  function botaoDeDoisCliques(classe, rotulo, title, acao, confirmar = "Confirmar") {
+    return h("button", { class: classe, type: "button", "data-rotulo": rotulo, title, onclick: ev => {
       ev.stopPropagation();
       const b = ev.currentTarget;
       if (b.dataset.confirmar) return acao(b);
       b.dataset.confirmar = "1";
-      b.textContent = "Confirmar";
+      b.textContent = confirmar;
       setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.confirmar; b.textContent = rotulo; } }, 4000);
     } }, rotulo);
   }
+  const botaoComConfirmacao = (classe, rotulo, title, acao, confirmar) => botaoDeDoisCliques(`${classe} perigo`, rotulo, title, acao, confirmar);
   const botaoExcluir = (id, classe, rotulo) => botaoComConfirmacao(classe, rotulo,
     "Fecha a tarefa como descartada. A nota fica no vault, com uma linha no registro.", b => excluirTarefa(id, b));
   function sessoesVivasDaTarefa(id) {
@@ -274,7 +293,10 @@
     $("atualizar").textContent = carregandoAgora ? "Lendo…" : "Atualizar";
     if (!resposta) { $("vivoTexto").textContent = carregandoAgora ? "lendo o Copiloto…" : "sem dados"; return; }
     const idade = (resposta.idadeSegundos || 0) + (Date.now() - recebidoEm) / 1000;
-    $("vivoTexto").textContent = `${carregandoAgora || resposta.atualizando ? "atualizando" : "ao vivo"} · dados ${V.idade(idade)}`;
+    // como o "daemon ok · ledger ok · relido há 6 s" do Bill: a saude do ciclo e a idade da leitura
+    const saude = resposta.dados && resposta.dados.saude;
+    const ciclo = !saude ? "" : saude.ok === false ? "ciclo com falha · " : "ciclo ok · ";
+    $("vivoTexto").textContent = `${ciclo}${carregandoAgora || resposta.atualizando ? "relendo" : "relido"} ${V.idade(idade)}`;
   }
   function aviso(texto) {
     $("aviso").hidden = !texto;
@@ -305,8 +327,7 @@
     if (!resposta) return;
     const d = resposta.dados;
     const f = V.filtrar(d, { busca: ui.busca, cor: ui.cor });
-    document.querySelectorAll(".abas button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.aba === ui.aba)));
-    for (const aba of ["painel", "mapa", "hoje"]) $("aba-" + aba).hidden = ui.aba !== aba;
+    mostrarAba();
     document.body.dataset.coluna = ui.coluna; // em tela estreita, as colunas viram abas
     document.body.dataset.rotinas = ui.rotinas;  // em tela larga, Rotinas recolhida vira uma faixa com o selo
     const selo = V.resumoRotinas(d.rotinas);
@@ -316,38 +337,352 @@
     document.querySelectorAll(".colunas-abas button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.coluna === ui.coluna)));
     $("alertas").replaceChildren();
     renderKpis(d);
-    if (ui.aba === "painel") {
+    if (ui.aba === "mapa") renderPainelMapa(d);
+    else if (ui.aba === "pulso") {
       renderAgentes(f.agentes);
       renderFila(f.voce, d);
       renderRotinas(V.filtrar(d, { busca: ui.busca, cor: ui.cor, segmento: ui.segmento }).rotinas, f.rotinas);
-    } else if (ui.aba === "mapa") renderMapa(d);
-    else renderHoje(d);
+    } else if (ui.aba === "tarefas") renderMapa(d);
+    else if (ui.aba === "saldos") { renderSaldos(d); renderHoje(d); }
+    else if (ui.aba === "ideias") renderIdeias(d);
+    else renderEntregas(d);
     marcarRodar();
     // redesenhar a gaveta no meio de uma resposta apagaria o que ele esta digitando
     const digitando = document.activeElement && document.activeElement.tagName === "TEXTAREA" && $("gaveta").contains(document.activeElement);
     if (gaveta && !digitando && !ditado) abrirGaveta(gaveta.tipo, gaveta.id, true);  // nem no meio de um ditado
   }
 
+  // Troca de aba: o Pulso, as Tarefas e as Entregas tambem abrem pelos cartoes do topo e do Mapa.
+  function mostrarAba() {
+    document.querySelectorAll(".abas button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.aba === ui.aba)));
+    for (const aba of ABAS) $("aba-" + aba).hidden = ui.aba !== aba;
+  }
+  function irPara(destino) {
+    if (!destino) return;
+    if (destino === "voce") { ui.aba = "pulso"; ui.tipoFila = null; ui.coluna = "voce"; }
+    else {
+      if (destino === "tarefas" && ui.aba !== "tarefas") animarBolhas = true;
+      ui.aba = destino;
+    }
+    salvarPreferencias();
+    renderizar();
+  }
+  const marcaCor = cor => h("span", { class: `marca-cor ${cor}`, title: ROTULO[cor], "aria-hidden": "true" });
+
+  // A faixa de numeros do painel do Bill: duas linhas de cartoes, o numero grande antes do rotulo. O clique abre a aba
+  // de cada um; nas Cadeiras, o numero de cada cor filtra a tela inteira, como os chips de antes.
   function renderKpis(d) {
-    const p = d.placar || {};
-    // Uma linha de chips: o numero de cada cor filtra a tela inteira.
-    const cartoes = CORES.map(c => h("button", { class: `kpi ${c}${ui.cor === c ? " ativo" : ""}`, type: "button", "aria-pressed": String(ui.cor === c),
-      title: `${DESC[c]}. ${ui.cor === c ? "Clique para tirar o filtro." : "Clique para mostrar só isso."}`,
-      onclick: () => { ui.cor = ui.cor === c ? null : c; salvarPreferencias(); renderizar(); } },
-      h("span", { class: "numero" }, p[c] || 0), h("span", { class: "nome" }, bolinha(c), ROTULO[c])));
-    const v = d.voce || {};
-    cartoes.push(h("button", { class: "kpi voce", type: "button", title: v.total ? `O mais antigo espera há ${v.mais_antigo_dias} dias. Clique para ver a fila.` : "Nada na fila",
-      onclick: () => { ui.aba = "painel"; ui.tipoFila = null; ui.coluna = "voce"; salvarPreferencias(); renderizar(); } },
-      h("span", { class: "numero" }, v.total || 0), h("span", { class: "nome" }, "Esperando você")));
-    const m = d.maquina || {};
+    if (!d.numeros) {
+      $("kpis").replaceChildren(h("p", { class: "kpis-aviso" }, "O Copiloto instalado ainda não manda os números do painel. Mescle o PR dele e rode git pull em C:\\Dev\\Dev Seazone\\copiloto."));
+      return;
+    }
+    const { linha1, linha2 } = P.cartoesTopo(d.numeros);
+    const cartao = (c, ...dentro) => h("button", { class: `kpi-cartao ${c.cor || ""}`, type: "button",
+      title: [c.titulo || `${c.numero} ${c.rotulo}`, c.sub].filter(Boolean).join(" · "), onclick: () => irPara(c.destino) }, ...dentro);
+    const primeira = linha1.map(c => cartao(c, h("span", { class: "kpi-numero" }, c.numero), h("span", { class: "kpi-rotulo" }, c.rotulo),
+      c.sub ? h("span", { class: "kpi-sub" }, `· ${c.sub}`) : null));
+    const [saldo, energia, cadeiras] = linha2;
+    const segunda = [
+      cartao(saldo, h("span", { class: "kpi-titulo" }, bolinha(saldo.cor), saldo.titulo), h("span", { class: "kpi-rotulo" }, saldo.rotulo),
+        saldo.sub ? h("span", { class: "kpi-sub" }, `· ${saldo.sub}`) : null),
+      cartao(energia, h("span", { class: "kpi-numero" }, energia.numero), h("span", { class: "kpi-rotulo" }, energia.rotulo),
+        energia.sub ? h("span", { class: "kpi-sub" }, `· ${energia.sub}`) : null),
+      h("div", { class: "kpi-cartao cadeiras", title: "Os agentes por cor. Clique num número para mostrar só aquela cor." },
+        ...CORES.map(c => h("button", { class: `cadeira${ui.cor === c ? " ativo" : ""}`, type: "button", "aria-pressed": String(ui.cor === c),
+          title: `${ROTULO[c]}: ${DESC[c]}. ${ui.cor === c ? "Clique para tirar o filtro." : "Clique para mostrar só isso."}`,
+          onclick: () => { ui.cor = ui.cor === c ? null : c; salvarPreferencias(); renderizar(); } }, marcaCor(c), cadeiras.cores[c])),
+        h("span", { class: "kpi-rotulo" }, "Cadeiras"))];
+    $("kpis").replaceChildren(h("div", { class: "kpis-linha" }, primeira), h("div", { class: "kpis-linha" }, segunda));
+  }
+
+  // ------------------------------------------------------------------ Mapa: o painel do Bill em tres colunas
+  function renderPainelMapa(d) {
+    renderPrioridades(d);
+    renderTimesLista(d.times || []);
+    renderMapaTimes(d);
+    renderFilaPainel(d.fila);
+    renderSaldosPainel(d.saldos || []);
+    renderAconteceu(d.aconteceu || [], d);
+  }
+
+  // Prioridades: a lista curta dele, que a orquestradora le a cada ciclo para despachar primeiro o que serve a elas.
+  const prioridadesAgora = d => (P.valeOLocal(prioridadesLocais, resposta && resposta.iniciadoEm) ? prioridadesLocais.lista : (d.prioridades || []));
+  function renderPrioridades(d) {
+    const lista = P.prioridadesEmOrdem(prioridadesAgora(d));
+    const abertas = lista.filter(p => !p.feita);
+    if (!lista.length) {
+      $("prioridades").replaceChildren(h("li", { class: "vazio" }, "Nenhuma prioridade. A orquestradora despacha pela ordem das tarefas."));
+      return;
+    }
+    $("prioridades").replaceChildren(...lista.map(p => {
+      const i = abertas.indexOf(p);
+      const ligadas = (p.tarefas || []).length;
+      return h("li", { class: `prioridade${p.feita ? " feita" : ""}` },
+        h("input", { type: "checkbox", checked: p.feita, "aria-label": p.feita ? "Desmarcar: voltar a ser prioridade" : "Marcar como feita",
+          onchange: ev => mexerPrioridade({ acao: "marcar", id: p.id, feita: ev.currentTarget.checked }, ev.currentTarget) }),
+        h("span", { class: "texto-prio" }, p.texto),
+        ligadas ? h("span", { class: "ligadas", title: p.tarefas.join(", ") }, `${ligadas} ${ligadas === 1 ? "tarefa ligada" : "tarefas ligadas"}`) : null,
+        h("span", { class: "controles" },
+          h("button", { class: "quadrado", type: "button", title: "Subir", "aria-label": "Subir", disabled: p.feita || i <= 0,
+            onclick: ev => mexerPrioridade({ acao: "mover", id: p.id, direcao: "subir" }, ev.currentTarget) }, "↑"),
+          h("button", { class: "quadrado", type: "button", title: "Descer", "aria-label": "Descer", disabled: p.feita || i === abertas.length - 1,
+            onclick: ev => mexerPrioridade({ acao: "mover", id: p.id, direcao: "descer" }, ev.currentTarget) }, "↓"),
+          botaoComConfirmacao("quadrado", "🗑", "Apagar a prioridade (o segundo clique confirma)", b => mexerPrioridade({ acao: "apagar", id: p.id }, b), "✓")));
+    }));
+  }
+  async function mexerPrioridade(pedido, controle) {
+    if (controle) controle.disabled = true;
+    try {
+      const r = await fetch("/api/copiloto/prioridades", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pedido) });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "O Copiloto não aceitou a prioridade.");
+      prioridadesLocais = { lista: corpo.prioridades || [], em: Date.now() };
+      if (pedido.acao === "adicionar") $("novaPrioridade").value = "";
+      if (pedido.acao === "adicionar") toast("Prioridade gravada: a orquestradora liga a tarefa que a serve no próximo ciclo.");
+    } catch (erro) {
+      toast(erro.message);
+    }
+    if (resposta) renderPrioridades(resposta.dados);
+  }
+
+  // Times: um cartao por time; o clique destaca o time no mapa (de novo, tira o destaque)
+  function renderTimesLista(times) {
+    if (!times.length) { $("timesLista").replaceChildren(h("p", { class: "vazio" }, "Nenhum time com gente agora.")); return; }
+    $("timesLista").replaceChildren(...times.map(t => {
+      const cores = CORES.filter(c => (t.cores || {})[c]);
+      const pior = cores[0] || "sem_sinal";
+      return h("button", { class: `time-cartao${ui.time === t.chave ? " ativo" : ""}`, type: "button", "aria-pressed": String(ui.time === t.chave),
+        title: `${t.nome}: ${P.subtituloTime(t)}. Clique para destacar no mapa.`, onclick: () => { ui.time = ui.time === t.chave ? null : t.chave; salvarPreferencias(); renderizar(); } },
+        h("div", { class: "linha-time-1" }, bolinha(pior), h("b", {}, t.nome),
+          h("span", { class: "cores-time" }, cores.map(c => h("span", {}, marcaCor(c), t.cores[c])))),
+        h("div", { class: "linha-time-2" }, P.linhaTime(t)));
+    }));
+  }
+
+  // O mapa dos times: os nos e as ligacoes vem prontos do Copiloto (times.montar); aqui so se desenha. O desenho
+  // cabe no quadro (zoom 1); + e − aproximam e afastam, e o quadro rola por dentro.
+  function renderMapaTimes(d) {
+    const svg = $("mapaTimes");
+    const nos = d.nos || [];
+    const observa = ui.vistaMapa === "observa";
+    document.querySelectorAll(".vistas-mapa button[data-vista]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.vista === ui.vistaMapa)));
+    if (!nos.length) {
+      svg.setAttribute("viewBox", "0 0 600 120");
+      svg.setAttribute("width", "600");
+      svg.setAttribute("height", "120");
+      svg.replaceChildren(s("text", { x: 300, y: 60, "text-anchor": "middle", class: "mapa-vazio" },
+        d.numeros ? "Nenhum agente no mapa agora." : "O Copiloto instalado ainda não manda o mapa dos times: mescle o PR dele e rode git pull."));
+      $("legendaTimes").replaceChildren();
+      $("mapaNota").hidden = true;
+      return;
+    }
+    const L = P.layoutTimes(nos, d.ligacoes || [], { observa });
+    // a legenda so mostra as cores e as linhas que aparecem
+    const SENTIDO = { delega: "quem passa trabalho a quem", escala: "o agente que espera você", rotinas: "a rotina que acorda o agente", observa: "quem confere o trabalho de quem" };
+    $("legendaTimes").replaceChildren(...CORES.map(c => h("span", {}, marcaCor(c), ROTULO[c].toLowerCase())), h("span", { class: "separa" }),
+      ...L.tipos.map(t => h("span", { title: SENTIDO[t] || t }, h("i", { class: `tracinho ${t}` }), t)));
+    // um aviso numa linha, como o do Bill: o bloco do painel que falhou ou o ciclo com problema
+    const erros = Object.keys(d.erros_painel || {});
+    const nota = erros.length ? `O Copiloto não montou ${erros.join(", ")} nesta leitura: o resto do painel segue.`
+      : d.saude && d.saude.ok === false ? `O ciclo do Copiloto está falhando${d.saude.erro ? `: ${curto(d.saude.erro, 140)}` : "."}` : "";
+    $("mapaNota").hidden = !nota;
+    $("mapaNota").textContent = nota;
+    const termo = V.semAcento(ui.busca).trim();
+    const apagado = n => Boolean((ui.cor && n.tipo !== "voce" && n.tipo !== "entregas" && n.cor !== ui.cor)
+      || (ui.time && n.time !== ui.time && n.tipo !== "voce" && n.tipo !== "entregas")
+      || (termo && ![n.nome, n.estado, n.detalhe, n.tarefa].some(c => V.semAcento(c).includes(termo))));
+    const apagados = new Set(L.nos.filter(apagado).map(n => n.id));
+    const defs = s("defs", {}, ...["delega", "escala", "rotinas", "observa", "esteira"].map(t => s("marker", { id: `seta-${t}`, viewBox: "0 0 10 10", refX: 9, refY: 5,
+      markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" }, s("path", { d: "M0,1 L9,5 L0,9 z", class: `seta ${t}` }))));
+    // por ordem: o fundo das caixas, a esteira e as ligacoes, o nome de cada caixa por cima das linhas e os agentes
+    const apagada = c => (ui.time && ui.time !== c.time ? " apagada" : "");
+    const fundos = L.caixas.map(c => s("g", { class: `caixa-time${apagada(c)}` }, s("rect", { x: c.x, y: c.y, width: c.w, height: c.h, rx: 10 })));
+    const nomes = L.caixas.map(c => {
+      const time = (d.times || []).find(t => t.chave === c.time);
+      return s("g", { class: `caixa-time${apagada(c)}` },
+        s("text", { x: c.x + 10, y: c.y + 15, class: "nome-caixa" }, NOME_TIME[c.time] || c.nome),
+        time ? s("text", { x: c.x + 10, y: c.y + 27, class: "sub-caixa" }, P.subtituloTime(time)) : null);
+    });
+    const arestas = L.arestas.map(a => s("path", { d: a.d, class: `ligacao ${a.tipo}${apagados.has(a.de) && apagados.has(a.para) ? " apagada" : ""}`,
+      "marker-end": `url(#seta-${a.tipo})` }));
+    const esteira = L.esteira ? s("path", { d: L.esteira, class: "ligacao esteira", "marker-end": "url(#seta-esteira)" }, s("title", {}, "o que a Fábrica entrega hoje")) : null;
+    const nosSvg = L.nos.map(n => noDoMapa(n, apagados.has(n.id)));
+    const escala = escalaDoMapa(L);
+    svg.setAttribute("viewBox", `0 0 ${L.largura} ${L.altura}`);
+    svg.setAttribute("width", String(Math.round(L.largura * escala)));
+    svg.setAttribute("height", String(Math.round(L.altura * escala)));
+    $("mapaRolagem").classList.toggle("aproximado", ui.zoom > 1);
+    svg.replaceChildren(defs, ...fundos, s("g", { class: "ligacoes" }, esteira, arestas), ...nomes, ...nosSvg);
+  }
+  // cabe no quadro com o zoom 1; o + e o − multiplicam
+  function escalaDoMapa(L) {
+    const quadro = $("mapaRolagem");
+    const caber = quadro.clientWidth > 0 && quadro.clientHeight > 0 ? Math.min(quadro.clientWidth / L.largura, (quadro.clientHeight - 4) / L.altura) : 1;
+    return Math.max(0.3, Math.min(3, caber * (ui.zoom || 1)));
+  }
+  // A marca da cor (losango, triangulo, bola, anel), como na legenda
+  function marcaNoSvg(cor, x, y) {
+    if (cor === "problema") return s("polygon", { class: "cor-no problema", points: `${x},${y - 4.5} ${x + 4.5},${y} ${x},${y + 4.5} ${x - 4.5},${y}` });
+    if (cor === "atencao") return s("polygon", { class: "cor-no atencao", points: `${x},${y - 4.5} ${x + 4.8},${y + 3.8} ${x - 4.8},${y + 3.8}` });
+    return s("circle", { class: `cor-no ${cor === "bem" ? "bem" : "sem_sinal"}`, cx: x, cy: y, r: cor === "bem" ? 4 : 3.4 });
+  }
+  function seloNoSvg(n, x, y) {
+    if (n.selo === null || n.selo === undefined || n.selo === 0) return null;
+    const texto = String(n.selo);
+    const r = texto.length > 2 ? 10 : 8;
+    return s("g", { class: "selo-no" }, s("circle", { cx: x, cy: y, r }), s("text", { x, y: y + 3.3, "text-anchor": "middle" }, texto));
+  }
+  function noDoMapa(n, apagado) {
+    const dica = [n.nome, n.detalhe || n.estado, n.tarefa ? `tarefa ${n.tarefa}` : "", n.selo ? `${n.selo} na fila` : ""].filter(Boolean).join(" · ");
+    const acao = acaoDoNo(n);
+    const base = { class: `no-time ${n.tipo} ${n.cor}${n.tipo === "voce" ? " no-voce" : ""}${n.tipo === "entregas" ? " no-entregas" : ""}${apagado ? " apagado" : ""}`,
+      transform: `translate(${n.x},${n.y})`, tabindex: acao ? "0" : null, role: acao ? "button" : null, "aria-label": dica };
+    let corpo;
+    if (n.tipo === "voce") {
+      corpo = [s("rect", { class: "corpo", width: n.w, height: n.h, rx: n.h / 2 }),
+        s("text", { class: "nome-no", x: n.w / 2, y: n.h / 2 + 4, "text-anchor": "middle" }, "Você"), seloNoSvg(n, n.w - 2, 2)];
+    } else if (n.tipo === "entregas") {
+      corpo = [s("rect", { class: "corpo", width: n.w, height: n.h, rx: 10 }),
+        s("text", { class: "nome-no", x: n.w / 2, y: 22, "text-anchor": "middle" }, "Entregas hoje"),
+        s("text", { class: "numero-no", x: n.w / 2, y: 46, "text-anchor": "middle" }, String(n.selo || 0))];
+    } else {
+      const pct = n.tipo === "agente" && n.contexto ? `${V.medidorContexto(n.contexto).pct}%` : "";
+      const nomeMax = Math.floor((n.w - (pct ? 48 : 30)) / 6.1);
+      corpo = [s("rect", { class: "corpo", width: n.w, height: n.h, rx: 7 }), marcaNoSvg(n.cor, 12, n.tipo === "rotina" ? n.h / 2 - 5 : 13),
+        s("text", { class: "nome-no", x: 22, y: n.tipo === "rotina" ? n.h / 2 - 1.5 : 17 }, curto(n.nome, nomeMax)),
+        s("text", { class: "estado-no", x: 22, y: n.tipo === "rotina" ? n.h / 2 + 10 : 31 }, curto(n.estado || "", Math.floor((n.w - 30) / 5.3))),
+        pct ? s("text", { class: "pct-no", x: n.w - (n.selo ? 22 : 8), y: 17, "text-anchor": "end" }, s("title", {}, `contexto: ${V.medidorContexto(n.contexto).rotulo} tokens`), pct) : null,
+        seloNoSvg(n, n.w - 4, 4)];
+    }
+    const g = s("g", base, s("title", {}, dica), ...corpo.filter(Boolean));
+    return acao ? clicavel(g, acao) : g;
+  }
+  // O clique no agente abre a conversa dele (ler, responder, ouvir, parar); na rotina, a rotina; em Voce, a sua fila;
+  // nas Entregas de hoje, a aba Entregas; na governanca, o que ela faz.
+  function acaoDoNo(n) {
+    const d = resposta && resposta.dados;
+    if (!d) return null;
+    if (n.tipo === "voce") return () => irPara("voce");
+    if (n.tipo === "entregas") return () => irPara("entregas");
+    if (n.tipo === "rotina" && n.rotina) return () => abrirGaveta("rotina", n.rotina);
+    if (n.tipo === "funcao") return () => abrirGaveta("funcao", n.id);
+    if (n.tipo === "agente") {
+      const sessoes = (d.trabalho && d.trabalho.sessoes) || {};
+      const agente = (d.agentes || []).find(a => (n.agente && a.id === n.agente) || (n.sessao && a.sessao === n.sessao));
+      const sessao = n.sessao || (agente && agente.sessao) || "";
+      if (sessao && sessoes[sessao]) return () => abrirGaveta("sessao", sessao);
+      if (agente && agente.id) return () => abrirGaveta("agente", agente.id);
+    }
+    return null;
+  }
+
+  // A direita: a fila em quadros, os saldos e o que aconteceu
+  function renderFilaPainel(fila) {
+    $("filaGrade").replaceChildren(...P.cartoesFila(fila).map(c => h("button", { class: `fila-item${c.larga ? " larga" : ""}`, type: "button",
+      title: `${c.numero} ${c.rotulo}. Clique para abrir.`, onclick: () => irPara(c.destino) },
+      h("span", { class: "numero" }, c.numero), h("span", { class: "rotulo" }, c.rotulo))));
+  }
+  function renderSaldosPainel(saldos) {
+    $("saldosLista").replaceChildren(...(saldos.length ? saldos.map(sa => h("div", { class: "saldo-item", title: `${sa.nome}: ${sa.detalhe} (${sa.fonte})` },
+      h("div", { class: "saldo-1" }, bolinha(sa.cor), h("b", {}, sa.nome), h("span", { class: `saldo-pct ${sa.cor}` }, `${sa.disponivel}% disponível`)),
+      h("div", { class: "saldo-2" }, sa.detalhe))) : [h("p", { class: "vazio" }, "Sem leitura dos saldos.")]));
+  }
+  function renderAconteceu(itens, d) {
+    if (!itens.length) { $("aconteceu").replaceChildren(h("li", { class: "vazio" }, "Nada andou hoje ainda.")); return; }
+    const termo = V.semAcento(ui.busca).trim();
+    const naTela = id => ((d.trabalho && d.trabalho.projetos) || []).some(p => p.tarefas.some(x => x.id === id));
+    $("aconteceu").replaceChildren(...itens.filter(i => !termo || [i.texto, i.titulo, i.tarefa].some(c => V.semAcento(c).includes(termo))).map(i => {
+      const abrir = naTela(i.tarefa) ? () => abrirGaveta("tarefa", i.tarefa) : null;
+      const li = h("li", { title: `${i.tarefa} · ${i.titulo}\n${i.texto}`, tabindex: abrir ? "0" : null, role: abrir ? "button" : null },
+        h("span", { class: "hora-ac" }, i.hora), h("span", { class: "texto-ac" }, h("span", { class: "id-ac" }, i.tarefa), " ", i.texto));
+      return abrir ? clicavel(li, abrir) : li;
+    }));
+  }
+
+  // ------------------------------------------------------------------ Saldos, Ideias e Entregas
+  function renderSaldos(d) {
+    const saldos = d.saldos || [];
+    const gastos = P.gastoPorSessao(d.agentes || []).slice(0, 8);
+    const energia = (d.numeros && d.numeros.energia) || {};
     const nota = d.nota;
-    const gb = x => (x === null || x === undefined ? "—" : `${Number(x).toFixed(1).replace(".", ",")} GB`);
-    cartoes.push(h("div", { class: "kpi maquina", title: "Memória e disco livres; organização do workspace pela auditoria" },
-      h("span", { class: "nome" }, "Máquina"),
-      h("span", { class: "desc" }, bolinha(m.memoria_livre_gb < 2 ? "atencao" : "bem"), ` memória ${gb(m.memoria_livre_gb)}`),
-      h("span", { class: "desc" }, bolinha(m.disco_livre_gb < 20 ? "atencao" : "bem"), ` disco ${m.disco_livre_gb == null ? "—" : Math.round(m.disco_livre_gb) + " GB"}`),
-      nota ? h("span", { class: "desc" }, bolinha(nota.nota >= 75 ? "bem" : nota.nota >= 50 ? "atencao" : "problema"), ` organização ${nota.nota}/100`) : null));
-    $("kpis").replaceChildren(...cartoes);
+    $("saldosGrade").replaceChildren(
+      ...saldos.map(sa => h("section", { class: "saldo-cartao" }, h("h2", { class: "rotulo-painel" }, sa.nome),
+        h("div", { class: "grande" }, `${sa.disponivel}%`, h("small", {}, "disponível")),
+        h("div", { class: "barra" }, h("i", { class: sa.cor, style: `width:${Math.max(0, Math.min(100, Number(sa.disponivel) || 0))}%` })),
+        h("div", { class: "detalhe" }, `${sa.detalhe} · ${sa.fonte}`))),
+      nota ? h("section", { class: "saldo-cartao" }, h("h2", { class: "rotulo-painel" }, "Organização do workspace"),
+        h("div", { class: "grande" }, String(nota.nota), h("small", {}, "/ 100")),
+        h("div", { class: "barra" }, h("i", { class: nota.nota >= 75 ? "bem" : nota.nota >= 50 ? "atencao" : "problema", style: `width:${Math.max(0, Math.min(100, nota.nota))}%` })),
+        h("div", { class: "detalhe" }, `auditoria de ${nota.dia || "hoje"}`)) : null,
+      h("section", { class: "saldo-cartao largo" }, h("h2", { class: "rotulo-painel" }, "Energia de hoje"),
+        h("div", { class: "grande" }, P.tokensCurto(energia.tokens || 0), h("small", {}, "tokens, sem o cache lido")),
+        gastos.length ? h("ul", { class: "gasto-lista" }, gastos.map(g => h("li", {}, h("span", {}, g.nome), h("b", {}, P.tokensCurto(g.tokens)))))
+          : h("p", { class: "detalhe" }, "Nenhuma sessão gastou hoje.")));
+  }
+  function renderIdeias(d) {
+    const grupos = P.ideiasPorSecao(d.ideias || [], ui.busca);
+    const total = (d.ideias || []).length;
+    $("ideias").replaceChildren(
+      h("p", { class: "ideias-intro" }, h("b", {}, `${total} ${total === 1 ? "ideia" : "ideias"} no BACKLOG do copiloto`),
+        ": o que ainda não virou trabalho, da seção mais nova para a mais velha. Só leitura: o que vira trabalho sai daqui como tarefa."),
+      ...(grupos.length ? grupos.map(g => h("section", { class: "ideias-secao" }, h("h3", {}, g.secao), h("ul", {}, g.itens.map(t => h("li", {}, trechos(t))))))
+        : [h("p", { class: "vazio" }, total ? "Nenhuma ideia com essa busca." : "O BACKLOG não tem ideia aberta.")]));
+  }
+  // "Entregue não é aceito": cada tarefa feita espera o aceite de quem não entregou. Aceitar marca a tarefa como
+  // verificada por ele; reprovar pede o motivo e devolve a tarefa ao worker.
+  function renderEntregas(d) {
+    const todas = d.entregas || [];
+    for (const [id, t] of entregasTratadas) if (!P.valeOLocal(t, resposta.iniciadoEm)) entregasTratadas.delete(id);
+    const termo = V.semAcento(ui.busca).trim();
+    const lista = todas.filter(e => !entregasTratadas.has(e.id) && (!termo || [e.id, e.titulo, e.projeto, e.resumo].some(c => V.semAcento(c).includes(termo))));
+    $("entregas").replaceChildren(
+      h("p", { class: "entregas-intro" }, h("b", {}, "Entregue não é aceito"),
+        ": cada tarefa aqui espera a revisão de quem não a entregou. A evidência que é link https:// abre em outra aba; o resto aparece como texto."),
+      h("div", { class: "entregas-cabeca" }, h("h2", { class: "rotulo-painel" }, `Entregues · ${lista.length}`),
+        h("span", { class: "fonte" }, `fonte: as notas do vault · lido ${resposta ? V.idade((resposta.idadeSegundos || 0) + (Date.now() - recebidoEm) / 1000) : ""}`)),
+      lista.length ? h("div", { class: "entregas-lista" }, lista.map(cartaoEntrega))
+        : h("p", { class: "vazio" }, todas.length ? "Nenhuma entrega com essa busca." : "Nenhuma entrega esperando aceite."));
+  }
+  function cartaoEntrega(e) {
+    const v = P.entregaVista(e);
+    const itemLista = it => h("li", {}, it.tipo === "link" ? h("a", { href: it.href, target: "_blank", rel: "noopener noreferrer" }, it.texto)
+      : it.tipo === "print" ? [h("span", { class: "tipo-print" }, "print"), it.texto] : it.texto);
+    const motivo = h("textarea", { class: "resposta-texto", rows: "2", maxlength: "500", placeholder: "O que faltou? Vai para a nota e volta com a tarefa para o worker." });
+    const caixaMotivo = h("div", { class: "reprovar-motivo", hidden: true }, motivo,
+      h("div", { class: "acoes" }, h("button", { class: "botao pequeno perigo", type: "button", "data-confirmar": "1",
+        onclick: ev => { const t = motivo.value.trim(); if (!t) { motivo.focus(); return toast("Diga o que faltou."); } darVeredito(e, "reprovar", t, ev.currentTarget); } }, "Reprovar e devolver ao worker"),
+        h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { caixaMotivo.hidden = true; } }, "Cancelar")));
+    return h("article", { class: "entrega-cartao" },
+      h("div", { class: "entrega-topo" }, h("span", { class: "entrega-id" }, e.id), h("span", { class: "entrega-quando" }, e.entregue_em ? `entregue ${e.entregue_em}` : "")),
+      h("h3", {}, e.titulo),
+      e.projeto ? h("div", { class: "entrega-projeto" }, e.projeto) : null,
+      e.resumo ? h("p", { class: "entrega-resumo" }, trechos(e.resumo)) : null,
+      v.evidencias.length ? [h("div", { class: "entrega-rotulo" }, "Evidências"), h("ul", { class: "entrega-lista" }, v.evidencias.map(itemLista))] : null,
+      v.artefatos.length ? [h("div", { class: "entrega-rotulo" }, "Artefatos"), h("ul", { class: "entrega-lista" }, v.artefatos.map(itemLista))] : null,
+      h("div", { class: "acoes" },
+        botaoDeDoisCliques("botao pequeno secundario", "Aceitar", "Marca a tarefa como aceita por você (o segundo clique confirma)", b => darVeredito(e, "ok", "", b), "Confirmar aceite"),
+        h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { caixaMotivo.hidden = false; motivo.focus(); } }, "Reprovar"),
+        V.linkObsidian(e) ? h("a", { class: "link", href: V.linkObsidian(e) }, "Abrir a nota") : null),
+      caixaMotivo);
+  }
+  async function darVeredito(e, veredito, motivo, botao) {
+    botao.disabled = true;
+    const rotulo = botao.textContent;
+    botao.textContent = veredito === "ok" ? "Aceitando…" : "Reprovando…";
+    try {
+      const r = await fetch("/api/copiloto/veredito", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tarefa: e.id, veredito, motivo }) });
+      const corpo = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(corpo.error || "O Copiloto não aceitou o veredito.");
+      entregasTratadas.set(e.id, { em: Date.now(), acao: corpo.acao });
+      toast(veredito === "ok" ? `${e.id} aceita: a tarefa fica verificada por você.` : `${e.id} reprovada: volta para o worker, com o seu motivo na nota.`);
+      renderizar();
+    } catch (erro) {
+      botao.disabled = false;
+      if (botao.dataset.rotulo) delete botao.dataset.confirmar;  // o Aceitar volta a pedir os dois cliques
+      botao.textContent = botao.dataset.rotulo || rotulo;
+      toast(erro.message);
+    }
   }
 
   function renderAgentes(agentes) {
@@ -459,7 +794,7 @@
     const svg = $("mapa");
     svg.replaceChildren();
     const naArvore = Boolean(alvoMapa && alvoMapa.tipo === "arvore");
-    $("aba-mapa").dataset.vista = naArvore ? "arvore" : "mapa";
+    $("aba-tarefas").dataset.vista = naArvore ? "arvore" : "mapa";
     $("mapaTopo").hidden = !naArvore;
     const quadro = svg.parentElement;
     tamanhoDoMapa = `${quadro.clientWidth}x${quadro.clientHeight}`;
@@ -555,7 +890,7 @@
     voce: "precisa de você", descartado: "descartado", decisao: "decisão", nota: "nota" };
   const semMovimento = () => Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   function verHistoria(id) {
-    if (ui.aba !== "mapa") { ui.aba = "mapa"; salvarPreferencias(); }
+    if (ui.aba !== "tarefas") { ui.aba = "tarefas"; salvarPreferencias(); }
     abrirArvore("tarefa", id);
   }
   function abrirArvore(alvo, id) {
@@ -578,7 +913,7 @@
     } catch (erro) {
       arvores.set(chave, { ...(arvores.get(chave) || {}), carregando: false, erro: V.mensagemDeFalha(erro), em: Date.now() });
     }
-    if (resposta && ui.aba === "mapa" && alvoMapa && alvoMapa.tipo === "arvore" && `${alvoMapa.alvo}:${alvoMapa.id}` === chave) renderMapa(resposta.dados);
+    if (resposta && ui.aba === "tarefas" && alvoMapa && alvoMapa.tipo === "arvore" && `${alvoMapa.alvo}:${alvoMapa.id}` === chave) renderMapa(resposta.dados);
   }
   // os dados da arvore: da nota (tarefa e projeto) ou montados aqui (a pasta e "Sem tarefa", que nao tem nota)
   function dadosDaArvore(d) {
@@ -763,6 +1098,7 @@
           daTarefa ? h("button", { class: "botao pequeno secundario", type: "button", title: "As partes da tarefa, de cima para baixo, no Mapa",
             onclick: () => { fecharGaveta(); verHistoria(daTarefa); } }, "Ver a árvore da tarefa") : null)];
     }
+    else if (tipo === "funcao") corpo = gavetaFuncao(d, id);
     else if (tipo === "tarefa") corpo = gavetaTarefa(d, id);
     else if (tipo === "sessao" || tipo === "sub") corpo = gavetaSessao(d, tipo, id, silencioso);
     if (!corpo) return fecharGaveta();
@@ -779,6 +1115,22 @@
     $("veu").hidden = false;
     if (!silencioso) $("fecharGaveta").focus();
   }
+  // Governanca do mapa: a Verificadora, a Revisora e a Ronda rodam no ciclo e no codigo, sem sessao propria. A gaveta
+  // diz o que cada uma faz e leva ao lugar onde ela age.
+  function gavetaFuncao(d, id) {
+    const n = (d.nos || []).find(x => x.id === id);
+    if (!n) return null;
+    const qual = id.replace(/^funcao:/, "");
+    const vigia = (d.vigia && d.vigia.hoje) || null;
+    const ronda = (d.rotinas || []).find(r => r.nome === "Copiloto - ronda");
+    return [h("p", { class: "eyebrow" }, "governança"), h("h3", {}, n.nome), h("p", { class: `estado estado-${n.cor}` }, n.estado),
+      h("dl", { class: "detalhes" }, linha("O que faz", FUNCAO[qual] || ""),
+        linha("Na fila", qual === "verificadora" ? `${n.selo || 0} ${n.selo === 1 ? "entrega espera" : "entregas esperam"} aceite` : ""),
+        linha("Hoje", qual === "ronda" && vigia ? vigia.texto : "")),
+      h("div", { class: "acoes" },
+        qual === "verificadora" ? h("button", { class: "botao pequeno", type: "button", onclick: () => { fecharGaveta(); irPara("entregas"); } }, "Ver as entregas") : null,
+        qual === "ronda" && ronda ? h("button", { class: "botao pequeno secundario", type: "button", onclick: () => abrirGaveta("rotina", ronda.nome) }, "Ver a rotina da ronda") : null)];
+  }
   // Tarefa do Mapa: status, projeto, sessoes e a nota. Se ela esta na fila Voce, o botao leva a resposta da fase 1.
   function gavetaTarefa(d, id) {
     const projeto = ((d.trabalho && d.trabalho.projetos) || []).find(p => p.tarefas.some(x => x.id === id));
@@ -791,7 +1143,7 @@
         linha("Nota", V.linkObsidian(t) ? h("a", { href: V.linkObsidian(t) }, "Abrir a nota no Obsidian") : "")),
       h("div", { class: "acoes" },
         naFila ? h("button", { class: "botao pequeno", type: "button", onclick: () => abrirGaveta("voce", naFila.id) }, naFila.tipo === "dar ok" ? "Revisar o rascunho" : "Responder na fila") : null,
-        !/^T-/.test(t.id) || (ui.aba === "mapa" && alvoMapa && alvoMapa.tipo === "arvore" && alvoMapa.alvo === "tarefa" && alvoMapa.id === id) ? null
+        !/^T-/.test(t.id) || (ui.aba === "tarefas" && alvoMapa && alvoMapa.tipo === "arvore" && alvoMapa.alvo === "tarefa" && alvoMapa.id === id) ? null
           : h("button", { class: "botao pequeno secundario", type: "button", onclick: () => { fecharGaveta(); verHistoria(id); } }, "Ver a árvore da tarefa"),
         t.aberta && /^T-/.test(t.id) ? botaoExcluir(t.id, "botao pequeno", "Excluir tarefa") : null)];
   }
@@ -1048,7 +1400,7 @@
   NavRail.montar($("rail"), { ativo: "cockpit" });
   if ("speechSynthesis" in window) speechSynthesis.getVoices();  // o Chrome so carrega a lista de vozes depois da primeira chamada
   document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => {
-    if (b.dataset.aba === "mapa" && ui.aba !== "mapa") animarBolhas = true;
+    if (b.dataset.aba === "tarefas" && ui.aba !== "tarefas") animarBolhas = true;
     ui.aba = b.dataset.aba; salvarPreferencias(); renderizar();
   }));
   document.querySelectorAll(".colunas-abas button").forEach(b => b.addEventListener("click", () => { ui.coluna = b.dataset.coluna; salvarPreferencias(); renderizar(); }));
@@ -1064,7 +1416,7 @@
   // o desenho segue o tamanho do quadro: redesenha quando a janela muda ou quando a aba Mapa aparece (escondida, mede 0)
   new ResizeObserver(() => {
     const quadro = $("mapa").parentElement;
-    if (resposta && ui.aba === "mapa" && `${quadro.clientWidth}x${quadro.clientHeight}` !== tamanhoDoMapa) renderMapa(resposta.dados);
+    if (resposta && ui.aba === "tarefas" && `${quadro.clientWidth}x${quadro.clientHeight}` !== tamanhoDoMapa) renderMapa(resposta.dados);
   }).observe($("mapa").parentElement);
   document.addEventListener("keydown", e => {
     const digitando = /^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || "");
@@ -1072,13 +1424,44 @@
     else if (e.key === "Escape") {
       if (gaveta) fecharGaveta();
       else if (digitando) { $("busca").value = ""; ui.busca = ""; $("busca").blur(); renderizar(); }
-      else if (alvoMapa && ui.aba === "mapa") voltarAoMapa();
+      else if (alvoMapa && ui.aba === "tarefas") voltarAoMapa();
     } else if ((e.key === "r" || e.key === "R") && !digitando && !e.ctrlKey && !e.metaKey && !e.altKey) carregar(true);
   });
   setInterval(marcarVivo, 1000);
 
-  document.querySelectorAll(".abas button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.aba === ui.aba)));
-  for (const aba of ["painel", "mapa", "hoje"]) $("aba-" + aba).hidden = ui.aba !== aba;
+  // O Mapa do painel: a prioridade nova, as vistas (Padrao e + quem observa), o zoom e a tela cheia
+  $("formPrioridade").addEventListener("submit", ev => {
+    ev.preventDefault();
+    const texto = $("novaPrioridade").value.trim();
+    if (!texto) { $("novaPrioridade").focus(); return; }
+    const botao = ev.submitter || null;
+    mexerPrioridade({ acao: "adicionar", texto }, botao).finally(() => { if (botao) botao.disabled = false; });
+  });
+  document.querySelectorAll(".vistas-mapa button[data-vista]").forEach(b => b.addEventListener("click", () => {
+    ui.vistaMapa = b.dataset.vista; salvarPreferencias(); if (resposta) renderMapaTimes(resposta.dados);
+  }));
+  document.querySelectorAll(".zoom button").forEach(b => b.addEventListener("click", () => {
+    const z = b.dataset.zoom;
+    if (z === "tela") {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else $("quadroMapa").requestFullscreen().catch(() => toast("O navegador não deixou abrir em tela cheia."));
+      return;
+    }
+    ui.zoom = z === "caber" ? 1 : Math.max(0.5, Math.min(3, (ui.zoom || 1) * (z === "mais" ? 1.25 : 0.8)));
+    salvarPreferencias();
+    if (resposta) renderMapaTimes(resposta.dados);
+  }));
+  $("verContas").addEventListener("click", () => irPara("saldos"));
+  let tamanhoDoQuadro = "";  // redesenha o mapa dos times so quando o quadro muda de tamanho (ou aparece)
+  new ResizeObserver(() => {
+    const q = $("mapaRolagem");
+    const agora = `${q.clientWidth}x${q.clientHeight}`;
+    if (agora === tamanhoDoQuadro) return;
+    tamanhoDoQuadro = agora;
+    if (resposta && ui.aba === "mapa") renderMapaTimes(resposta.dados);
+  }).observe($("mapaRolagem"));
+
+  mostrarAba();
   mostrarCarregando();
   carregarAgenda().then(renderizar);
   carregar(false);

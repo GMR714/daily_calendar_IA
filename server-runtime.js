@@ -7,7 +7,7 @@ const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
 const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal } = require("./request-guard");
-const { createCopilotoCommands, validarResposta, validarExclusao, validarProjeto, validarLeitura, validarRespostaSessao } = require("./copiloto-command");
+const { createCopilotoCommands, validarResposta, validarExclusao, validarProjeto, validarLeitura, validarRespostaSessao, validarPrioridade, validarVeredito } = require("./copiloto-command");
 const { execFile } = require("node:child_process");
 
 // Botao "Cantinho": abre o painel flutuante (overlay.ps1) ligado a este servidor, como o duplo clique no
@@ -70,7 +70,7 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
     if (ciclo.unref) ciclo.unref();
   }
   const publicFiles = { "/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/planner-core.js": "planner-core.js", "/product-ui.js": "product-ui.js", "/product.css": "product.css", "/checklist.js": "checklist.js",
-    "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js",
+    "/cockpit": "cockpit.html", "/cockpit.js": "cockpit.js", "/cockpit.css": "cockpit.css", "/cockpit-view.js": "cockpit-view.js", "/cockpit-painel.js": "cockpit-painel.js",
     "/nav-rail.js": "nav-rail.js", "/nav-rail.css": "nav-rail.css", "/agenda-layout.js": "agenda-layout.js" };
   // Item da fila "Voce" do Copiloto vira tarefa de 30 min para hoje; a impressao digital evita duplicar.
   function cockpitParaAgenda(body) {
@@ -132,6 +132,22 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
         const r = await copiloto.excluirTarefa(id);
         if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // o card sai da fila e do Mapa
         return reply(res, 200, { ok: true, id: r.id || id, status: r.status || "descartada" });
+      }
+      // O painel do Bill (docs/specs/cockpit-billverso.md): as prioridades dele e o aceite das entregas gravam no
+      // Copiloto. O Copiloto recusa com "erro" (texto ou lista) e saida 0: aqui isso vira 400, e nada mudou.
+      const recusa = r => (r && r.erro ? (Array.isArray(r.erro) ? r.erro.join("; ") : String(r.erro)) : "");
+      if (req.method === "POST" && url.pathname === "/api/copiloto/prioridades") {
+        const r = await copiloto.prioridades(validarPrioridade(await readJson(req)));
+        if (recusa(r)) return reply(res, 400, { error: recusa(r), prioridades: r.prioridades || [] });
+        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // a orquestradora le a lista nova
+        return reply(res, 200, { ok: true, prioridades: (r && r.prioridades) || [] });
+      }
+      if (req.method === "POST" && url.pathname === "/api/copiloto/veredito") {
+        const r = await copiloto.veredito(validarVeredito(await readJson(req)));
+        if (recusa(r)) return reply(res, 400, { error: recusa(r) });
+        if (r && r.acao === "nada") return reply(res, 409, { error: `Nada mudou: ${r.motivo || "a tarefa ja nao espera aceite"}.` });
+        if (cockpitSource && cockpitSource.refresh) cockpitSource.refresh().catch(() => {});  // o card sai das Entregas
+        return reply(res, 200, { ok: true, ...r });
       }
       if (req.method === "POST" && url.pathname === "/api/copiloto/rodar") {
         await readJson(req);
