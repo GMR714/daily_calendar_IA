@@ -247,7 +247,12 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       return reply(res, 404, { error: "Rota inexistente." });
     } catch (error) { reply(res, error.status || 400, { error: error.message || "Nao foi possivel concluir. Nenhum dado foi apagado." }); }
   });
-  return { server, store, propose, apply, file, retomarEntregas };
+  // o que o server.js descobre no `tailscale status --json` ao subir (tailnet.js): soma ao AGENDA_HOSTS e aos logins
+  function usarTailnet({ hosts: nomes = [], logins: donos = [] } = {}) {
+    for (const nome of nomes) if (!hostsExtras.includes(nome)) hostsExtras.push(nome);
+    for (const login of donos) if (!loginsDaTailnet.includes(login)) loginsDaTailnet.push(login);
+  }
+  return { server, store, propose, apply, file, retomarEntregas, usarTailnet };
 }
 function reply(res, status, payload, type = "application/json;charset=utf-8") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" });

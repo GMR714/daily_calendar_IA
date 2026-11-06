@@ -20,4 +20,6 @@ app.server.listen(port, process.env.HOST || "127.0.0.1", () => {
   }
   startTelegram(app).catch(() => console.error("Nao foi possivel iniciar o Telegram."));
   app.retomarEntregas();  // resposta da tela que esperava uma sessao parar quando a agenda fechou
+  // de outra maquina, pelo `tailscale serve`: o nome desta maquina na tailnet e o login do dono (tailnet.js)
+  require("./tailnet").descobrirTailnet().then(app.usarTailnet);
 });
