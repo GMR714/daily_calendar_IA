@@ -32,6 +32,14 @@ test("cockpit roda o copiloto uma vez, guarda e serve do cache", async () => {
   assert.equal((await source.get({ force: true })).dados.n, 4);
 });
 
+test("a leitura diz quando comecou: a tela sabe se ela e de antes do que ele acabou de mudar", async () => {
+  let clock = 1000;
+  const source = createCockpitSource({ run: async () => { clock = 4000; return { n: 1 }; }, now: () => clock });
+  const v = await source.get();
+  assert.equal(v.iniciadoEm, new Date(1000).toISOString());
+  assert.equal(v.lidoEm, new Date(4000).toISOString());
+});
+
 test("releitura pedida depois de uma mudanca, com outra leitura rodando, roda de novo quando ela termina", async () => {
   let calls = 0;
   let soltar;

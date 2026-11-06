@@ -56,8 +56,51 @@ function validarRespostaSessao({ sessao, texto } = {}) {
   return { sessao: pedido.sessao, texto: limpo };
 }
 
+// Prioridades (painel do Bill, docs/specs/cockpit-billverso.md): a tela adiciona, sobe, desce, marca e apaga. Ligar a
+// tarefa a prioridade e da orquestradora, nao da tela. O Copiloto ainda confere o texto (tamanho e segredo).
+const ACOES_PRIORIDADE = ["adicionar", "mover", "marcar", "apagar"];
+function validarPrioridade(body = {}) {
+  const invalido = texto => Object.assign(new Error(texto), { status: 400 });
+  const acao = String(body.acao || "");
+  if (!ACOES_PRIORIDADE.includes(acao)) throw invalido("Acao desconhecida.");
+  if (acao === "adicionar") {
+    const texto = String(body.texto || "").trim();
+    if (!texto) throw invalido("Escreva a prioridade.");
+    if (texto.length > 200) throw invalido("Prioridade longa demais: ate 200 caracteres.");
+    return { acao, dados: { texto } };
+  }
+  const id = String(body.id || "");
+  if (!/^p\d{1,4}$/.test(id)) throw invalido("Prioridade invalida.");
+  if (acao === "mover") {
+    if (!["subir", "descer"].includes(body.direcao)) throw invalido("Direcao invalida.");
+    return { acao, dados: { id, direcao: body.direcao } };
+  }
+  if (acao === "marcar") {
+    if (typeof body.feita !== "boolean") throw invalido("Diga se esta feita.");
+    return { acao, dados: { id, feita: body.feita } };
+  }
+  return { acao, dados: { id } };
+}
+
+// Aceitar e reprovar uma entrega (aba Entregas): o veredito e sempre do Gabriel, que nao entregou a tarefa. Reprovar
+// pede o motivo, que vai para a nota e volta com a tarefa para o worker.
+const MOTIVO_DO_ACEITE = "conferi a entrega e a prova pela tela do cockpit";
+function validarVeredito(body = {}) {
+  const invalido = texto => Object.assign(new Error(texto), { status: 400 });
+  const item = validarExclusao({ tarefa: body.tarefa });
+  const veredito = String(body.veredito || "");
+  if (!["ok", "reprovar"].includes(veredito)) throw invalido("Pela tela, a entrega so se aceita ou se reprova.");
+  const motivo = String(body.motivo || "").trim().replace(/\s+/g, " ");
+  if (veredito === "reprovar" && !motivo) throw invalido("Diga o que faltou: o motivo volta com a tarefa para o worker.");
+  if (motivo.length > 500) throw invalido("Motivo longo demais: ate 500 caracteres.");
+  return { item, veredito, motivo: motivo || MOTIVO_DO_ACEITE, quem: "Gabriel" };
+}
+
 function erroDoComando(error) {
   const texto = `${error?.stderr || ""} ${error?.message || ""}`;
+  if (/invalid choice: 'prioridades'/i.test(texto)) {
+    return "O Copiloto instalado ainda nao tem as prioridades. Mescle o PR dele no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
+  }
   if (/invalid choice: '(entrada|ciclo)'/i.test(texto)) {
     return "O Copiloto instalado ainda nao tem a caixa de entrada. Mescle o PR dela no copiloto e rode git pull em C:\\Dev\\Dev Seazone\\copiloto.";
   }
@@ -117,7 +160,11 @@ function createCopilotoCommands({ run = runCli } = {}) {
     // so le a nota: as partes (## Partes) ou, sem elas, a historia de cima para baixo (ADR 030 do copiloto)
     arvoreDaTarefa: id => run(["tarefa", "arvore", id]),
     arvoreDoProjeto: nome => run(["projeto", "arvore", nome]),
+    // o painel do Bill: a lista volta inteira depois de cada mudanca; o veredito volta com o status novo da tarefa
+    prioridades: ({ acao, dados }) => run(["prioridades", acao], { entrada: dados }),
+    veredito: v => run(["verificacao", "veredito"], { entrada: v }),
   };
 }
 
-module.exports = { createCopilotoCommands, validarResposta, validarExclusao, validarProjeto, validarLeitura, validarRespostaSessao, erroDoComando, envDoCopiloto, runCli };
+module.exports = { createCopilotoCommands, validarResposta, validarExclusao, validarProjeto, validarLeitura, validarRespostaSessao, validarPrioridade, validarVeredito,
+  erroDoComando, envDoCopiloto, runCli };
