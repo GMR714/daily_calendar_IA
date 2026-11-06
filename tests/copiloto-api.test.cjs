@@ -153,7 +153,7 @@ test("copiloto: a tela do cockpit tem o botao Rodar agora e pede a versao nova d
   assert.match(html, /<button id="voltarMapa"/);  // a arvore da tarefa volta ao Mapa
   assert.match(html, /<div id="arvoreDecisao" class="arvore-decisao"/);  // o clique na bola abre a arvore de decisao
   assert.doesNotMatch(html, /id="historia"|id="arvore" class="arvore"/);  // sairam os cartoes e a lista em arvore do #24
-  assert.match(html, /cockpit\.js\?v=15/);
+  assert.match(html, /cockpit\.js\?v=16/);
   assert.match(html, /cockpit-view\.js\?v=15/);
   assert.match(html, /cockpit-painel\.js\?v=1/);
   assert.match(html, /cockpit\.css\?v=12/);
