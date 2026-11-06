@@ -6,7 +6,7 @@ const Planner = require("./planner-core");
 const { createStore } = require("./agenda-store");
 const Overlay = require("./overlay-core");
 const { createCockpitSource } = require("./cockpit-source");
-const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal } = require("./request-guard");
+const { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal, loginPermitido } = require("./request-guard");
 const { createCopilotoCommands, validarResposta, validarExclusao, validarProjeto, validarLeitura, validarRespostaSessao, validarPrioridade, validarVeredito } = require("./copiloto-command");
 const { execFile } = require("node:child_process");
 
@@ -32,9 +32,10 @@ function abrirPainelFlutuante({ serverUrl }) {
   });
 }
 
-function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, copiloto = createCopilotoCommands(), entregaMs = 20000, cicloMs = 60000 }) {
+function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFlutuante, file = process.env.AGENDA_DATA_FILE || path.join(__dirname, "agenda-data.json"), hosts = process.env.AGENDA_HOSTS, logins = process.env.AGENDA_TAILSCALE_LOGINS, copiloto = createCopilotoCommands(), entregaMs = 20000, cicloMs = 60000 }) {
   const store = createStore(file);
   const hostsExtras = listaDeHosts(hosts);
+  const loginsDaTailnet = listaDeHosts(logins);  // e-mails do Tailscale, em minusculas, separados por virgula
   const proposals = new Map();
   let cockpitSource = cockpit;
   // Respostas que esperam a sessao parar (Mapa de trabalho): o Copiloto entrega a cada `entregaMs` enquanto houver
@@ -115,6 +116,8 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
   const server = http.createServer(async (req, res) => {
     try {
       if (!hostPermitido(req.headers.host, hostsExtras)) return reply(res, 403, { error: "Endereco nao permitido. Abra a agenda por localhost ou 127.0.0.1, ou inclua o nome em AGENDA_HOSTS." });
+      // de outra maquina, pelo tailscale serve: so com o login do Tailscale na lista (docs/specs/cockpit-pela-tailnet.md)
+      if (!loginPermitido(req.headers, loginsDaTailnet)) return reply(res, 403, { error: "Esta conta da tailnet nao entra aqui. Inclua o login do Tailscale em AGENDA_TAILSCALE_LOGINS." });
       const url = new URL(req.url, `http://${req.headers.host}`);
       if (!origemPermitida({ method: req.method, origin: req.headers.origin, host: req.headers.host })) return reply(res, 403, { error: "Origem nao permitida." });
       if (rotaSoLocal(url.pathname) && !pedidoLocal(req.socket.remoteAddress)) return reply(res, 403, { error: "Esta acao so vale neste computador." });

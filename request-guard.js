@@ -23,7 +23,18 @@ function hostPermitido(host, extras = []) {
 
 function origemPermitida({ method, origin, host }) {
   if (method === "GET" || method === "HEAD" || !origin) return true;
-  return origin === `http://${host}`;
+  return origin === `http://${host}` || origin === `https://${host}`;  // https: o tailscale serve com certificado
+}
+
+// Pela tailnet (docs/specs/cockpit-pela-tailnet.md): o `tailscale serve` deste computador repassa a 127.0.0.1 o pedido de
+// outra maquina da tailnet com o X-Forwarded-For de quem pediu e o Tailscale-User-Login, que ele mesmo preenche. O
+// navegador deste computador nao manda nenhum dos dois. Por esse caminho, so entram os logins de AGENDA_TAILSCALE_LOGINS.
+function pelaTailnet(headers = {}) {
+  return Boolean(headers["x-forwarded-for"] || headers["tailscale-user-login"]);
+}
+function loginPermitido(headers = {}, logins = []) {
+  if (!pelaTailnet(headers)) return true;
+  return logins.includes(String(headers["tailscale-user-login"] || "").trim().toLowerCase());
 }
 
 function pedidoLocal(endereco) {
@@ -37,4 +48,4 @@ function rotaSoLocal(caminho) {
     || caminho.startsWith("/api/tarefas/");
 }
 
-module.exports = { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal };
+module.exports = { hostPermitido, origemPermitida, pedidoLocal, listaDeHosts, rotaSoLocal, pelaTailnet, loginPermitido };

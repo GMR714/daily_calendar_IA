@@ -230,7 +230,16 @@
       marcarRodar();
     }
   }
+  // De outra maquina da tailnet (docs/specs/cockpit-pela-tailnet.md), a janela da Mestra abriria no notebook, longe dele:
+  // ali o botao abre a conversa dela na gaveta, com a caixa de resposta.
+  const deOutraMaquina = !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  function conversaDaMestra() {
+    const d = resposta && resposta.dados;
+    const mestra = d && (d.agentes || []).find(a => a.nome === "Mestra" && a.sessao);
+    return mestra && ((d.trabalho && d.trabalho.sessoes) || {})[mestra.sessao] ? mestra.sessao : "";
+  }
   async function abrirMestra() {
+    if (deOutraMaquina && conversaDaMestra()) return abrirGaveta("sessao", conversaDaMestra());
     const botao = $("abrirMestra");
     botao.disabled = true;
     botao.textContent = "Abrindo…";
@@ -238,6 +247,11 @@
       const r = await fetch("/api/copiloto/mestra", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       const corpo = await r.json().catch(() => ({}));
       if (!r.ok || corpo.ok === false) throw new Error(corpo.error || corpo.erro || "Não consegui abrir a Mestra.");
+      if (deOutraMaquina) {  // ela nasceu ou acordou no notebook: a conversa aparece aqui na proxima leitura
+        toast("A Mestra está no notebook: a conversa dela abre aqui em instantes.");
+        setTimeout(() => { carregar(true).then(() => { if (conversaDaMestra()) abrirGaveta("sessao", conversaDaMestra()); }); }, 8000);
+        return;
+      }
       toast(corpo.janela ? (corpo.acao === "nova" ? "A Mestra nasceu: a janela abre em instantes." : "Janela da Mestra aberta.")
         : `A Mestra está no claude agents: claude attach ${corpo.curto || "Mestra"}`);
     } catch (erro) {
