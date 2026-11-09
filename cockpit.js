@@ -416,6 +416,7 @@
     renderMapaTimes(d);
     renderFilaPainel(d.fila);
     renderSaldosPainel(d.saldos || []);
+    renderMaquinasPainel(d);
     renderAconteceu(d.aconteceu || [], d);
   }
 
@@ -547,7 +548,8 @@
     return s("g", { class: "selo-no" }, s("circle", { cx: x, cy: y, r }), s("text", { x, y: y + 3.3, "text-anchor": "middle" }, texto));
   }
   function noDoMapa(n, apagado) {
-    const dica = [n.nome, n.detalhe || n.estado, n.tarefa ? `tarefa ${n.tarefa}` : "", n.selo ? `${n.selo} na fila` : ""].filter(Boolean).join(" · ");
+    const onde = V.ondeRoda(n, resposta && resposta.dados && resposta.dados.agentes);
+    const dica = [n.nome, onde ? `na máquina ${onde}` : "", n.detalhe || n.estado, n.tarefa ? `tarefa ${n.tarefa}` : "", n.selo ? `${n.selo} na fila` : ""].filter(Boolean).join(" · ");
     const acao = acaoDoNo(n);
     const base = { class: `no-time ${n.tipo} ${n.cor}${n.tipo === "voce" ? " no-voce" : ""}${n.tipo === "entregas" ? " no-entregas" : ""}${apagado ? " apagado" : ""}`,
       transform: `translate(${n.x},${n.y})`, tabindex: acao ? "0" : null, role: acao ? "button" : null, "aria-label": dica };
@@ -564,7 +566,7 @@
       const nomeMax = Math.floor((n.w - (pct ? 48 : 30)) / 6.1);
       corpo = [s("rect", { class: "corpo", width: n.w, height: n.h, rx: 7 }), marcaNoSvg(n.cor, 12, n.tipo === "rotina" ? n.h / 2 - 5 : 13),
         s("text", { class: "nome-no", x: 22, y: n.tipo === "rotina" ? n.h / 2 - 1.5 : 17 }, curto(n.nome, nomeMax)),
-        s("text", { class: "estado-no", x: 22, y: n.tipo === "rotina" ? n.h / 2 + 10 : 31 }, curto(n.estado || "", Math.floor((n.w - 30) / 5.3))),
+        s("text", { class: "estado-no", x: 22, y: n.tipo === "rotina" ? n.h / 2 + 10 : 31 }, curto((onde ? `${onde} · ` : "") + (n.estado || ""), Math.floor((n.w - 30) / 5.3))),
         pct ? s("text", { class: "pct-no", x: n.w - (n.selo ? 22 : 8), y: 17, "text-anchor": "end" }, s("title", {}, `contexto: ${V.medidorContexto(n.contexto).rotulo} tokens`), pct) : null,
         seloNoSvg(n, n.w - 4, 4)];
     }
@@ -600,6 +602,13 @@
     $("saldosLista").replaceChildren(...(saldos.length ? saldos.map(sa => h("div", { class: "saldo-item", title: `${sa.nome}: ${sa.detalhe} (${sa.fonte})` },
       h("div", { class: "saldo-1" }, bolinha(sa.cor), h("b", {}, sa.nome), h("span", { class: `saldo-pct ${sa.cor}` }, `${sa.disponivel}% disponível`)),
       h("div", { class: "saldo-2" }, sa.detalhe))) : [h("p", { class: "vazio" }, "Sem leitura dos saldos.")]));
+  }
+  // As outras maquinas (o PC de casa): no ar ou fora, vagas livres, memoria e quando o ciclo leu; sem nenhuma, some.
+  function renderMaquinasPainel(d) {
+    const linhas = V.linhasMaquinas(d);
+    $("cartaoMaquinas").hidden = !linhas.length;
+    $("maquinasLista").replaceChildren(...linhas.map(m => h("div", { class: "maquina-item", title: m.texto },
+      bolinha(m.cor), h("span", {}, m.texto))));
   }
   function renderAconteceu(itens, d) {
     if (!itens.length) { $("aconteceu").replaceChildren(h("li", { class: "vazio" }, "Nada andou hoje ainda.")); return; }
@@ -708,6 +717,11 @@
     }
     $("agentes").replaceChildren(...grupos.flatMap(g => [h("div", { class: "grupo-titulo" }, h("span", {}, g.titulo), h("span", {}, g.itens.length)), ...g.itens.map(linhaAgente)]));
   }
+  // A sessao de outra maquina (o PC de casa) leva o nome dela num chip; a do notebook, nada.
+  function chipMaquina(a) {
+    const m = V.ondeRoda(a);
+    return m ? h("span", { class: "chip maquina", title: `Roda na máquina ${m}, não neste notebook` }, m) : null;
+  }
   // Linha compacta (2 linhas): nome e hora; estado e contexto. O resto fica na gaveta.
   function linhaAgente(a) {
     const ctx = V.medidorContexto(a.contexto);
@@ -715,6 +729,7 @@
     return h("article", { class: `linha cor-${a.cor}${destaques.has(a.id) ? " mudou" : ""}`, tabindex: "0", role: "button", title: a.agora || a.estado,
       onclick: abrir, onkeydown: e => { if (e.key === "Enter") abrir(); } },
       h("div", { class: "linha-1" }, bolinha(a.cor), h("b", {}, a.nome), a.papel && a.papel !== "sessão" ? h("span", { class: `chip ${a.papel}` }, a.papel) : null,
+        chipMaquina(a),
         h("span", { class: "quando" }, a.atualizado ? `às ${a.atualizado}` : "")),
       h("div", { class: "linha-2" }, h("span", { class: `texto estado-${a.cor}` }, a.estado),
         h("span", { class: "mini-medidor", title: `Contexto: ${ctx.rotulo} tokens, ${ZONA[ctx.cor]}` }, h("span", { class: `medidor-preench ${ctx.cor}`, style: `width:${ctx.pct}%` })),
@@ -1082,7 +1097,7 @@
       corpo = [h("p", { class: "eyebrow" }, `${a.papel} · ${a.tipo}`), h("h3", {}, a.nome), h("p", { class: `estado estado-${a.cor}` }, a.estado),
         h("dl", { class: "detalhes" }, linha("O que disse por último", a.agora), linha("O que pediram", a.pedido),
           linha("Último pedido", a.ultimo_pedido !== a.pedido ? a.ultimo_pedido : ""), linha("Ferramenta em uso", a.ferramenta),
-          linha("Contexto", `${ctx.rotulo} tokens: ${ZONA[ctx.cor]}`), linha("Pasta", a.pasta + (a.branch ? ` (branch ${a.branch})` : "")),
+          linha("Contexto", `${ctx.rotulo} tokens: ${ZONA[ctx.cor]}`), linha("Máquina", V.ondeRoda(a) || "este notebook"), linha("Pasta", a.pasta + (a.branch ? ` (branch ${a.branch})` : "")),
           linha("Atualizado", a.atualizado), linha("Abrir a sessão", a.comando ? h("code", {}, a.comando) : "")),
         a.comando ? h("div", { class: "acoes" }, h("button", { class: "botao pequeno", type: "button", onclick: () => copiar(a.comando, "Comando copiado.") }, "Copiar attach")) : null];
     } else if (tipo === "rotina") {
