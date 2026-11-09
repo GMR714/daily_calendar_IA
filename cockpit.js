@@ -1181,12 +1181,13 @@
     }
     // O detalhe cabe em duas linhas: a altura que sobra e da conversa.
     const sb = s.subsessoes || { total: 0, ativas: 0 };
-    const attach = s.id ? `claude attach ${s.id}` : "";
+    const remota = V.sessaoRemota(s);
+    const attach = s.comando || (s.id ? `claude attach ${s.id}` : "");
     return [h("p", { class: "eyebrow" }, `sessão · ${s.tipo}`), h("h3", {}, s.nome), h("p", { class: `estado estado-${s.cor}` }, s.estado),
       h("p", { class: "sessao-meta", title: s.pasta }, [s.frente || s.pasta, s.atualizado ? `atualizada às ${s.atualizado}` : "",
         sb.total ? `${sb.total} ${sb.total === 1 ? "subsessão" : "subsessões"}${sb.ativas ? ` (${sb.ativas} trabalhando)` : ""}` : ""].filter(Boolean).join(" · ")),
       s.pedido ? h("p", { class: "sessao-pedido", title: s.pedido }, h("b", {}, "Pediram: "), s.pedido) : null,
-      h("div", { class: "acoes" }, atualizar, botaoOuvir(s.sessao), attach ? h("button", { class: "botao pequeno secundario", type: "button", title: `Copia "${attach}", que abre a sessão num terminal`,
+      h("div", { class: "acoes" }, atualizar, remota ? null : botaoOuvir(s.sessao), attach ? h("button", { class: "botao pequeno secundario", type: "button", title: `Copia "${attach}", que abre a sessão num terminal`,
         onclick: () => copiar(attach, "Comando copiado.") }, "Copiar attach") : null, botaoParar(s, V.acoesDaSessao(s))),
       caixaResumo(s.sessao), conversa, painelSessao(s, V.acoesDaSessao(s))];
   }
@@ -1357,7 +1358,7 @@
   }
   function conteudoConversa(sessao, sub) {
     const c = conversas.get(`${sessao}|${sub || ""}`) || { falas: [], carregando: true };
-    const quem = { voce: "Você", claude: "Claude", "sessão": "Pedido da sessão" };
+    const quem = { voce: "Você", claude: "Claude", "sessão": "Pedido da sessão", tela: "Tela da outra máquina" };
     return [
       c.antes && !c.carregando ? h("button", { class: "botao pequeno secundario anteriores", type: "button", onclick: () => carregarConversa(sessao, sub, true) }, "Carregar anteriores") : null,
       c.carregando ? h("p", { class: "carregando" }, h("span", { class: "giro" }), "Lendo a conversa…") : null,

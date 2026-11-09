@@ -172,3 +172,16 @@ test("sessoes: Copiloto sem o resumo explica o que falta", () => {
   assert.match(texto, /resumo/);
   assert.match(texto, /git pull/);
 });
+
+test("sessoes: a sessao de outra maquina (remota-<rotulo>-<agente>) chega ao Copiloto; fora do formato da 400", async t => {
+  const copiloto = copilotoFalso();
+  const base = await abrir(t, copiloto);
+  const remota = "remota-pc-casa-t-20261108-40-0100";
+  assert.equal((await get(base, `/api/sessoes/${remota}/conversa`)).status, 200);
+  assert.deepEqual(copiloto.chamadas, [{ sessao: remota, sub: null, antes: null }]);
+  for (const caminho of ["/api/sessoes/remota-/conversa", "/api/sessoes/remota-PC/conversa", "/api/sessoes/remota-a%2F..%2Fx/conversa",
+    "/api/sessoes/remota-a%20b/conversa"]) {
+    assert.equal((await get(base, caminho)).status, 400, caminho);
+  }
+  assert.equal(copiloto.chamadas.length, 1);
+});
