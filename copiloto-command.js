@@ -37,8 +37,9 @@ function validarProjeto(nome) {
 }
 
 // Conversa de uma sessao do Claude (Mapa de trabalho, 29/10): o id longo ou o curto, o subagente e a posicao no
-// arquivo de onde ler para tras. Nada fora do formato chega ao Copiloto.
-const SESSAO_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/;
+// arquivo de onde ler para tras. Nada fora do formato chega ao Copiloto. A sessao de outra maquina (copiloto
+// T-20261108-40) vem como remota-<rotulo do Herdr>-<agente>: o Copiloto le a tela dela e responde pelo Herdr.
+const SESSAO_ID = /^(?:[0-9a-f]{8}(-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?|remota-[a-z0-9][a-z0-9_.-]{0,99})$/;
 function validarLeitura({ sessao, sub, antes } = {}) {
   const invalido = texto => Object.assign(new Error(texto), { status: 400 });
   if (!SESSAO_ID.test(String(sessao || ""))) throw invalido("Sessao invalida.");

@@ -418,9 +418,20 @@
 
   // O que a gaveta da sessao oferece (entrega 2): sessao de terminal so se le; trabalhando, a resposta espera ela parar;
   // com o processo vivo, da para parar (a conversa fica e a resposta seguinte a retoma).
+  // Sessao de outra maquina (copiloto T-20261108-40): a resposta vai na hora pelo Herdr e o Claude guarda ate o fim da
+  // vez; parar e ouvir continuam pelo attach, porque o processo e a conversa estao la.
+  function sessaoRemota(s) {
+    return Boolean(s && /^remota-/.test(String(s.sessao || "")));
+  }
   function acoesDaSessao(s) {
     if (!s) return { pode: false, motivo: "", enviar: "", parar: false, fila: 0 };
     if (s.tipo === "interativa") return { pode: false, motivo: "Aberta num terminal: responda por lá.", enviar: "", parar: false, fila: 0 };
+    if (sessaoRemota(s)) {
+      const nao = motivo => ({ pode: false, motivo, enviar: "", parar: false, fila: 0 });
+      if (!s.viva) return nao("A máquina não responde agora: tente quando ela voltar, ou abra pelo attach.");
+      if (/^esperando você/.test(String(s.estado || ""))) return nao("Pedido de aprovação na tela da outra máquina: responda pelo attach.");
+      return { pode: true, motivo: "", enviar: "Enviar", parar: false, fila: 0 };
+    }
     return { pode: true, motivo: "", enviar: s.estado === "trabalhando" ? "Mandar quando parar" : "Enviar", parar: Boolean(s.viva), fila: s.na_fila || 0 };
   }
 
@@ -453,5 +464,5 @@
   }
 
   return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
-    raioDaTarefa, layoutBolhas, textoNaBola, ARVORE, quebrarTexto, abertosIniciais, alternarNo, layoutArvore, arvoreDaPasta, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
+    raioDaTarefa, layoutBolhas, textoNaBola, ARVORE, quebrarTexto, abertosIniciais, alternarNo, layoutArvore, arvoreDaPasta, agruparFalas, trechosDaFala, sessaoRemota, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });

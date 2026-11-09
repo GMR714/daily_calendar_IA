@@ -442,3 +442,19 @@ test("arvore: a pasta 'Sem tarefa' mostra as sessoes dela, a viva andando", () =
   assert.equal(a.texto, "Sem tarefa · C:\\Dev\\Video editor");
   assert.deepEqual(a.filhos.map(n => [n.texto, n.estado, n.sessao]), [["Editar o vídeo", "andando", "s1"], ["Antiga", "feito", "s2"]]);
 });
+
+test("sessao remota (copiloto T-20261108-40): responde na hora, sem parar nem ouvir, que seguem pelo attach", () => {
+  const s = { tipo: "na máquina casa", sessao: "remota-pc-casa-t-20261108-40-0100", estado: "trabalhando", viva: true, na_fila: 0 };
+  assert.equal(V.sessaoRemota(s), true);
+  assert.equal(V.sessaoRemota({ tipo: "em segundo plano", sessao: "bed96b72-86d1-400a-8a02-ebcacaf9813e" }), false);
+  assert.equal(V.sessaoRemota(null), false);
+  assert.deepEqual(V.acoesDaSessao(s), { pode: true, motivo: "", enviar: "Enviar", parar: false, fila: 0 });
+});
+
+test("sessao remota fora do ar ou num pedido de aprovacao manda para o attach antes de digitar", () => {
+  const base = { tipo: "na máquina casa", sessao: "remota-pc-casa-t-20261108-40-0100" };
+  assert.deepEqual(V.acoesDaSessao({ ...base, estado: "máquina sem resposta", viva: false }),
+    { pode: false, motivo: "A máquina não responde agora: tente quando ela voltar, ou abra pelo attach.", enviar: "", parar: false, fila: 0 });
+  assert.deepEqual(V.acoesDaSessao({ ...base, estado: "esperando você", viva: true }),
+    { pode: false, motivo: "Pedido de aprovação na tela da outra máquina: responda pelo attach.", enviar: "", parar: false, fila: 0 });
+});
