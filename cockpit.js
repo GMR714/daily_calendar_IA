@@ -35,6 +35,7 @@
   const digitadoSessao = new Map();  // resposta que ele esta escrevendo, por sessao
   const resumos = new Map();  // sessao → { texto, fonte, aviso, carregando, erro } do Ouvir
   let falando = null;  // sessao cujo resumo a voz esta lendo
+  let tocando = null;  // o Audio do mp3 na voz Francisca, enquanto toca
   let ditado = null;  // { sessao, rec } enquanto o microfone ouve
   // O que ele acabou de mudar pela tela vale sobre a leitura do Copiloto que comecou antes da mudanca (P.valeOLocal)
   let prioridadesLocais = null;  // { lista, em }
@@ -1190,12 +1191,13 @@
         onclick: () => copiar(attach, "Comando copiado.") }, "Copiar attach") : null, botaoParar(s, V.acoesDaSessao(s))),
       caixaResumo(s.sessao), conversa, painelSessao(s, V.acoesDaSessao(s))];
   }
-  // Ouvir (entrega 3): resumo de ate ~40 s, sem codigo, lido pela voz pt-BR do navegador; o texto fica escrito na gaveta.
+  // Ouvir (entrega 3): resumo de ate ~40 s, sem codigo, na voz Francisca (mp3 do edge-tts, pelo Copiloto) ou, sem ela,
+  // na voz pt-BR do navegador; o texto fica escrito na gaveta.
   // O botao e o quadro mudam no lugar, sem redesenhar a gaveta, para nao tirar o foco de quem esta digitando.
   function botaoOuvir(sessao) {
     const r = resumos.get(sessao) || {};
     return h("button", { class: "botao pequeno secundario", type: "button", "data-ouvir": "", disabled: Boolean(r.carregando),
-      title: "Um resumo de até 40 s, sem código, na voz do navegador", onclick: () => ouvir(sessao) },
+      title: "Um resumo de até 40 s, sem código, na voz Francisca; sem ela, na voz do navegador", onclick: () => ouvir(sessao) },
       falando === sessao ? "Parar de ouvir" : r.carregando ? "Resumindo…" : "Ouvir");
   }
   function caixaResumo(sessao) {
@@ -1221,11 +1223,39 @@
       const corpo = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(corpo.error || "Não consegui resumir a sessão.");
       resumos.set(sessao, { texto: corpo.texto, fonte: corpo.fonte, aviso: corpo.aviso || "" });
-      if (gaveta && gaveta.tipo === "sessao" && gaveta.id === sessao) falar(sessao, corpo.texto);  // fechou a gaveta: so guarda
+      if (gaveta && gaveta.tipo === "sessao" && gaveta.id === sessao) {  // fechou a gaveta: so guarda
+        const jeito = V.comoFalar(corpo);
+        if (jeito.modo === "audio") tocar(sessao, jeito.url, corpo.texto); else falar(sessao, corpo.texto);
+      }
     } catch (erro) {
       resumos.set(sessao, { erro: erro.message });
     }
     atualizarOuvir(sessao);
+  }
+  // O mp3 da voz Francisca. Erro, play() recusado ou nada tocando em V.TEMPO_AUDIO_MS: cai na voz do navegador, sem erro.
+  function tocar(sessao, url, texto) {
+    if (typeof Audio !== "function") return falar(sessao, texto);
+    const audio = new Audio(url);
+    tocando = audio;
+    falando = sessao;
+    const cair = () => {
+      clearTimeout(limite);
+      if (tocando !== audio) return;  // ja parou, terminou ou caiu
+      tocando = null;
+      audio.pause();
+      if (falando === sessao) { falando = null; falar(sessao, texto); atualizarOuvir(sessao); }
+    };
+    const limite = setTimeout(cair, V.TEMPO_AUDIO_MS);
+    audio.addEventListener("playing", () => clearTimeout(limite), { once: true });
+    audio.addEventListener("error", cair);
+    audio.addEventListener("ended", () => {
+      clearTimeout(limite);
+      if (tocando !== audio) return;
+      tocando = null;
+      if (falando === sessao) { falando = null; atualizarOuvir(sessao); }
+    });
+    const tentativa = audio.play();
+    if (tentativa && tentativa.catch) tentativa.catch(cair);
   }
   // Uma fala por frase: a voz do Google no Chrome para no meio de falas longas.
   function falar(sessao, texto) {
@@ -1247,6 +1277,7 @@
     if (!falando) return;
     const sessao = falando;
     falando = null;
+    if (tocando) { const audio = tocando; tocando = null; audio.pause(); }
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     atualizarOuvir(sessao);
   }

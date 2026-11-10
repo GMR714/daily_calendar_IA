@@ -153,6 +153,61 @@ test("sessoes: o Ouvir pede ao Copiloto o resumo da sessao, so deste computador"
   assert.equal(rotaSoLocal(`/api/sessoes/${SID}/resumo`), true);
 });
 
+test("sessoes: o resumo com audio vira audio_url, sem o caminho local, e o mp3 sai so para essa sessao", async t => {
+  const pasta = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-audio-"));
+  t.after(() => fs.rmSync(pasta, { recursive: true, force: true }));
+  const mp3 = path.join(pasta, "resumo.mp3");
+  const bytes = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0xff, 0xfb]);
+  fs.writeFileSync(mp3, bytes);
+  const outra = SID.slice(0, 8);
+  const base = await abrir(t, { resumirSessao: async sessao => sessao === SID
+    ? { sessao: SID, texto: "Terminou.", palavras: 1, segundos: 1, fonte: "ia", guardado: false, audio: mp3, voz: "pt-BR-FranciscaNeural" }
+    : { sessao, texto: "Sem audio.", palavras: 2, segundos: 1, fonte: "ia", guardado: true, audio_aviso: "edge-tts demorou", voz: "pt-BR-FranciscaNeural" } });
+  const r = await get(base, `/api/sessoes/${SID}/resumo`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.audio_url, `/api/sessoes/${SID}/resumo.mp3`);
+  assert.equal(r.body.audio, undefined);
+  assert.equal(JSON.stringify(r.body).includes("agenda-audio-"), false);
+  assert.equal(r.body.voz, "pt-BR-FranciscaNeural");
+  const audio = await fetch(`${base}/api/sessoes/${SID}/resumo.mp3`);
+  assert.equal(audio.status, 200);
+  assert.match(audio.headers.get("content-type"), /^audio\/mpeg/);
+  assert.equal(audio.headers.get("content-length"), String(bytes.length));
+  assert.deepEqual(Buffer.from(await audio.arrayBuffer()), bytes);
+  // sessao sem audio: o aviso passa, sem audio_url, e o mp3 da 404 em JSON
+  const sem = await get(base, `/api/sessoes/${outra}/resumo`);
+  assert.equal(sem.body.audio_url, undefined);
+  assert.equal(sem.body.audio_aviso, "edge-tts demorou");
+  const nada = await get(base, `/api/sessoes/${outra}/resumo.mp3`);
+  assert.equal(nada.status, 404);
+  assert.ok(nada.body.error);
+  assert.equal((await get(base, "/api/sessoes/xyz/resumo.mp3")).status, 400);
+  assert.equal(rotaSoLocal(`/api/sessoes/${SID}/resumo.mp3`), true);
+});
+
+test("sessoes: audio fora do contrato (outra extensao, arquivo sumido) nao vira audio_url", async t => {
+  const pasta = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-audio-"));
+  t.after(() => fs.rmSync(pasta, { recursive: true, force: true }));
+  const txt = path.join(pasta, "segredo.txt");
+  fs.writeFileSync(txt, "nao sirva");
+  let audio = txt;
+  const base = await abrir(t, { resumirSessao: async sessao => ({ sessao, texto: "Oi.", fonte: "ia", audio }) });
+  const r = await get(base, `/api/sessoes/${SID}/resumo`);
+  assert.equal(r.body.audio_url, undefined);
+  assert.equal(r.body.audio, undefined);
+  assert.equal((await get(base, `/api/sessoes/${SID}/resumo.mp3`)).status, 404);
+  audio = path.join(pasta, "sumiu.mp3");
+  assert.equal((await get(base, `/api/sessoes/${SID}/resumo`)).body.audio_url, undefined);
+  assert.equal((await get(base, `/api/sessoes/${SID}/resumo.mp3`)).status, 404);
+});
+
+test("sessoes: resumo de Copiloto antigo, sem audio, sai como antes", async t => {
+  const antigo = { sessao: SID, texto: "Terminou.", palavras: 1, segundos: 1, fonte: "ia", guardado: false };
+  const base = await abrir(t, { resumirSessao: async () => ({ ...antigo }) });
+  const r = await get(base, `/api/sessoes/${SID}/resumo`);
+  assert.deepEqual(r.body, antigo);
+});
+
 test("sessoes: falha do resumo vira 503 com a mensagem do Copiloto", async t => {
   const base = await abrir(t, { resumirSessao: async () => { throw Object.assign(new Error("O Copiloto demorou demais para responder."), { status: 503 }); } });
   const r = await get(base, `/api/sessoes/${SID}/resumo`);

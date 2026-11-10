@@ -280,6 +280,18 @@ test("ouvir: cada frase vira uma fala, para a voz do Google nao cortar no meio",
   assert.deepEqual(V.frasesParaFalar("   "), []);
 });
 
+test("ouvir: com audio_url do servidor toca a voz Francisca; sem ele, ou fora do formato, cai na voz do navegador", () => {
+  const url = "/api/sessoes/bed96b72/resumo.mp3";
+  assert.deepEqual(V.comoFalar({ texto: "Oi.", audio_url: url }), { modo: "audio", url });
+  assert.deepEqual(V.comoFalar({ texto: "Oi." }), { modo: "navegador" });
+  assert.deepEqual(V.comoFalar({ texto: "Oi.", audio_url: "" }), { modo: "navegador" });
+  assert.deepEqual(V.comoFalar({ texto: "Oi.", audio_url: "https://outro.site/x.mp3" }), { modo: "navegador" });
+  assert.deepEqual(V.comoFalar({ texto: "Oi.", audio_url: "C:\\tmp\\x.mp3" }), { modo: "navegador" });
+  assert.deepEqual(V.comoFalar({ texto: "Oi.", audio_url: 42 }), { modo: "navegador" });
+  assert.deepEqual(V.comoFalar(null), { modo: "navegador" });
+  assert.equal(V.TEMPO_AUDIO_MS, 8000);
+});
+
 test("ditar: o que ele dita entra depois do que ja estava na caixa, junto com o trecho ainda provisorio", () => {
   assert.equal(V.juntarDitado("", ["revise o PR"]), "revise o PR");
   assert.equal(V.juntarDitado("Pode seguir.", [" e depois", " mescle "]), "Pode seguir. e depois mescle");
