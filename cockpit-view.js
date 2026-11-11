@@ -451,6 +451,15 @@
     return String(texto || "").split(/(?<=[.!?…])\s+/).map(f => f.trim()).filter(Boolean);
   }
 
+  // Ouvir na voz Francisca (edge-tts no Copiloto): com audio_url da propria agenda, toca o mp3; sem ele, a voz do
+  // navegador. Se o mp3 nao comecar a tocar em TEMPO_AUDIO_MS, a tela cai na voz do navegador.
+  const TEMPO_AUDIO_MS = 8000;
+  function comoFalar(corpo) {
+    const url = corpo && corpo.audio_url;
+    if (typeof url === "string" && /^\/api\/sessoes\/[^/]+\/resumo\.mp3$/.test(url)) return { modo: "audio", url };
+    return { modo: "navegador" };
+  }
+
   // Ditar: o texto ditado (final e provisorio) entra depois do que ja estava na caixa. Nada e enviado sozinho.
   function juntarDitado(base, partes) {
     return [String(base || "").trim(), ...Array.from(partes || [], p => String(p || "").trim())].filter(Boolean).join(" ");
@@ -467,5 +476,5 @@
   }
 
   return { idade, medidorContexto, ondeRoda, linhasMaquinas, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
-    raioDaTarefa, layoutBolhas, textoNaBola, ARVORE, quebrarTexto, abertosIniciais, alternarNo, layoutArvore, arvoreDaPasta, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
+    raioDaTarefa, layoutBolhas, textoNaBola, ARVORE, quebrarTexto, abertosIniciais, alternarNo, layoutArvore, arvoreDaPasta, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, comoFalar, TEMPO_AUDIO_MS, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });

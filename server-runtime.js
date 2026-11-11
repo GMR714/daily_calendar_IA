@@ -37,6 +37,17 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
   const hostsExtras = listaDeHosts(hosts);
   const loginsDaTailnet = listaDeHosts(logins);  // e-mails do Tailscale, em minusculas, separados por virgula
   const proposals = new Map();
+  // Ouvir: sessao -> mp3 do resumo, so o caminho que o Copiloto devolveu. O navegador recebe a URL, nunca o caminho.
+  const audios = new Map();
+  function comAudio(sessao, resumo) {
+    if (!resumo || typeof resumo !== "object" || !("audio" in resumo)) { audios.delete(sessao); return resumo; }
+    const { audio, ...resto } = resumo;
+    let valido = typeof audio === "string" && /\.mp3$/i.test(audio) && path.isAbsolute(audio);
+    try { valido = valido && fs.statSync(audio).isFile(); } catch { valido = false; }
+    if (!valido) { audios.delete(sessao); return resto; }
+    audios.set(sessao, audio);
+    return { ...resto, audio_url: `/api/sessoes/${encodeURIComponent(sessao)}/resumo.mp3` };
+  }
   let cockpitSource = cockpit;
   // Respostas que esperam a sessao parar (Mapa de trabalho): o Copiloto entrega a cada `entregaMs` enquanto houver
   // fila. Uma rodada so comeca depois da anterior; Copiloto fora do ar para o laco, e a proxima resposta liga de novo.
@@ -181,7 +192,19 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
       }
       // Ouvir: resumo curto da sessao, sem codigo, que a tela le em voz alta.
       const resumo = /^\/api\/sessoes\/([^/]+)\/resumo$/.exec(url.pathname);
-      if (req.method === "GET" && resumo) return reply(res, 200, await copiloto.resumirSessao(validarLeitura({ sessao: resumo[1] }).sessao));
+      if (req.method === "GET" && resumo) {
+        const sessao = validarLeitura({ sessao: resumo[1] }).sessao;
+        return reply(res, 200, comAudio(sessao, await copiloto.resumirSessao(sessao)));
+      }
+      // Ouvir na voz Francisca: o mp3 que o Copiloto gerou para essa sessao, so o caminho que ele devolveu.
+      const resumoMp3 = /^\/api\/sessoes\/([^/]+)\/resumo\.mp3$/.exec(url.pathname);
+      if (req.method === "GET" && resumoMp3) {
+        const caminho = audios.get(validarLeitura({ sessao: resumoMp3[1] }).sessao);
+        let bytes = null;
+        if (caminho && /\.mp3$/i.test(caminho)) { try { bytes = fs.readFileSync(caminho); } catch { bytes = null; } }
+        if (!bytes) return reply(res, 404, { error: "Sem audio do resumo desta sessao." });
+        return reply(res, 200, bytes, "audio/mpeg");
+      }
       // Responder e parar retomam ou param uma sessao do Claude: so JSON, que de outro site exige pre-checagem.
       const acao = /^\/api\/sessoes\/([^/]+)\/(responder|parar)$/.exec(url.pathname);
       if (req.method === "POST" && acao) {
@@ -250,8 +273,9 @@ function createApp({ interpret, aiStatus, cockpit, launchOverlay = abrirPainelFl
   return { server, store, propose, apply, file, retomarEntregas };
 }
 function reply(res, status, payload, type = "application/json;charset=utf-8") {
-  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" });
-  res.end(Buffer.isBuffer(payload) ? payload : JSON.stringify(payload));
+  const corpo = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload) ?? "");
+  res.writeHead(status, { "Content-Type": type, "Content-Length": corpo.length, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" });
+  res.end(corpo);
 }
 async function readJson(req) {
   let size = 0; const chunks = [];
