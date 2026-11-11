@@ -72,11 +72,25 @@
   }
   const corDaFila = item => (item.velho ? "atencao" : "bem");
 
+  // Em que maquina roda (ADR 040 do copiloto): o agente traz `maquina` so quando e de outra maquina (o PC de casa); o no
+  // do mapa acha o agente dele pelo id ou pela sessao. Local, ou copiloto antigo sem o campo: "".
+  function ondeRoda(x, agentes) {
+    if (!x) return "";
+    if (x.maquina) return String(x.maquina);
+    if (!agentes || x.tipo !== "agente") return "";
+    const a = agentes.find(y => (x.agente && y.id === x.agente) || (x.sessao && y.sessao === x.sessao));
+    return a && a.maquina ? String(a.maquina) : "";
+  }
+  // O cartao Maquinas: a linha pronta que o copiloto manda (no ar, vagas livres, memoria, quando leu), com a cor.
+  function linhasMaquinas(dados) {
+    return ((dados && dados.maquinas) || []).map(m => ({ nome: m.nome, cor: m.cor || "sem_sinal", texto: m.texto || m.nome }));
+  }
+
   function filtrar(dados, { busca = "", cor = null, segmento = null } = {}) {
     const termo = semAcento(busca).trim();
     const casa = (...campos) => !termo || campos.some(campo => semAcento(campo).includes(termo));
     return {
-      agentes: (dados.agentes || []).filter(a => (!cor || a.cor === cor) && casa(a.nome, a.agora, a.pedido, a.frente, a.estado)),
+      agentes: (dados.agentes || []).filter(a => (!cor || a.cor === cor) && casa(a.nome, a.agora, a.pedido, a.frente, a.estado, a.maquina)),
       rotinas: (dados.rotinas || []).filter(r => (!cor || r.cor === cor) && (!segmento || r.segmento === segmento) && casa(r.nome, r.segmento, r.texto)),
       voce: ((dados.voce && dados.voce.itens) || []).filter(i => (!cor || corDaFila(i) === cor) && casa(i.id, i.titulo, i.texto, i.tipo))
     };
@@ -461,6 +475,6 @@
     return `O ditado parou (${codigo}).`;
   }
 
-  return { idade, medidorContexto, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
+  return { idade, medidorContexto, ondeRoda, linhasMaquinas, gruposAgentes, filtrar, posicaoNoDia, mudancas, semAcento, semMarkdown, legivel, acoesDoItem, avisoDaExclusao, semExcluidas, resumoRotinas, rotuloDaResposta, linkObsidian,
     raioDaTarefa, layoutBolhas, textoNaBola, ARVORE, quebrarTexto, abertosIniciais, alternarNo, layoutArvore, arvoreDaPasta, agruparFalas, trechosDaFala, acoesDaSessao, mensagemDeFalha, escolherVoz, frasesParaFalar, comoFalar, TEMPO_AUDIO_MS, juntarDitado, suporteDitado, erroDoDitado, ORDEM_COR };
 });

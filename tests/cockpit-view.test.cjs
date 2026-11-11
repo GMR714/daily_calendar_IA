@@ -454,3 +454,25 @@ test("arvore: a pasta 'Sem tarefa' mostra as sessoes dela, a viva andando", () =
   assert.equal(a.texto, "Sem tarefa · C:\\Dev\\Video editor");
   assert.deepEqual(a.filhos.map(n => [n.texto, n.estado, n.sessao]), [["Editar o vídeo", "andando", "s1"], ["Antiga", "feito", "s2"]]);
 });
+
+test("maquinas: a sessao de outra maquina leva o nome dela, no agente e no no do mapa; a local, nada", () => {
+  const agentes = [{ id: "t-20261109-57-1913", sessao: "", maquina: "casa" }, { id: "b144dc8f", sessao: "s1", maquina: null }];
+  assert.equal(V.ondeRoda(agentes[0]), "casa");
+  assert.equal(V.ondeRoda(agentes[1]), "");
+  assert.equal(V.ondeRoda({ id: "x" }), "");  // copiloto antigo, sem o campo
+  assert.equal(V.ondeRoda({ tipo: "agente", agente: "t-20261109-57-1913" }, agentes), "casa");
+  assert.equal(V.ondeRoda({ tipo: "agente", sessao: "s1" }, agentes), "");
+  assert.equal(V.ondeRoda({ tipo: "rotina" }, agentes), "");
+});
+
+test("maquinas: o cartao mostra a linha de cada maquina com a cor; sem maquina, nada", () => {
+  const dados = { maquinas: [{ nome: "casa", cor: "bem", texto: "casa: no ar · 6 de 8 vagas livres (5,5 GB de memória livre) · lida às 19:21" }] };
+  assert.deepEqual(V.linhasMaquinas(dados), [{ nome: "casa", cor: "bem", texto: "casa: no ar · 6 de 8 vagas livres (5,5 GB de memória livre) · lida às 19:21" }]);
+  assert.deepEqual(V.linhasMaquinas({ maquinas: [{ nome: "casa", responde: null }] }), [{ nome: "casa", cor: "sem_sinal", texto: "casa" }]);
+  assert.deepEqual(V.linhasMaquinas({}), []);
+});
+
+test("maquinas: a busca por 'casa' acha a sessao que roda la", () => {
+  const dados = { agentes: [{ nome: "T-57 Turno", cor: "bem", maquina: "casa" }, { nome: "Ciclo", cor: "bem", maquina: null }], rotinas: [], voce: [] };
+  assert.deepEqual(V.filtrar(dados, { busca: "casa" }).agentes.map(a => a.nome), ["T-57 Turno"]);
+});
